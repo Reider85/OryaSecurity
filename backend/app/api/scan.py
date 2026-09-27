@@ -28,7 +28,7 @@ async def scan_endpoint(
     request_id = str(uuid.uuid4())
     start = time.perf_counter()
 
-    cached, cache_hit = decision_cache.get(body.prompt)
+    cached, cache_hit = await decision_cache.get(body.prompt)
 
     if cache_hit and cached is not None:
         latency_ms = (time.perf_counter() - start) * 1000
@@ -54,7 +54,7 @@ async def scan_endpoint(
 
     rules_matched_dicts = [m.to_dict() for m in matches]
 
-    decision_cache.set(
+    await decision_cache.set(
         prompt=body.prompt,
         verdict=verdict.action,
         reason=verdict.reason,

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Any
 
+import structlog
 from app.config import settings
+from app.db.redis_client import get_redis_connection
+
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -13,14 +19,12 @@ class CacheEntry:
     reason: str
     rules_matched: list[dict]
     ts: float
-    expires_at: float
 
 
 class DecisionCache:
     def __init__(self, ttl_seconds: int | None = None, max_size: int | None = None):
         self._ttl = ttl_seconds or settings.cache_ttl_seconds
         self._max_size = max_size or settings.cache_max_size
-        self._store: dict[str, CacheEntry] = {}
         self._hits = 0
         self._misses = 0
 
@@ -28,37 +32,70 @@ class DecisionCache:
     def _make_key(prompt: str) -> str:
         return hashlib.sha256(prompt.encode()).hexdigest()
 
-    def get(self, prompt: str) -> tuple[dict | None, bool]:
+    async def get(self, prompt: str) -> tuple[dict | None, bool]:
         key = self._make_key(prompt)
-        entry = self._store.get(key)
-        if entry is None:
+        try:
+            client = await get_redis_connection()
+            value = await client.get(key)
+            
+            if value is None:
+                self._misses += 1
+                return None, False
+            
+            # Parse JSON value
+            data = json.loads(value)
+            
+            # Check TTL
+            expires_at = data.get("expires_at")
+            if expires_at and time.time() > expires_at:
+                await client.delete(key)
+                self._misses += 1
+                return None, False
+            
+            self._hits += 1
+            return {
+                "verdict": data["verdict"],
+                "reason": data["reason"],
+                "rules_matched": data["rules_matched"],
+                "ts": data["ts"],
+            }, True
+            
+        except Exception as exc:
+            # Redis error - fallback to miss
+            logger.warning(
+                "redis_cache_get_error",
+                key=key,
+                error=str(exc),
+                fallback_to_miss=True,
+            )
             self._misses += 1
             return None, False
-        if time.time() > entry.expires_at:
-            del self._store[key]
-            self._misses += 1
-            return None, False
-        self._hits += 1
-        return {
-            "verdict": entry.verdict,
-            "reason": entry.reason,
-            "rules_matched": entry.rules_matched,
-            "ts": entry.ts,
-        }, True
 
-    def set(self, prompt: str, verdict: str, reason: str, rules_matched: list[dict]) -> None:
+    async def set(self, prompt: str, verdict: str, reason: str, rules_matched: list[dict]) -> None:
         key = self._make_key(prompt)
         now = time.time()
-        self._store[key] = CacheEntry(
-            verdict=verdict,
-            reason=reason,
-            rules_matched=rules_matched,
-            ts=now,
-            expires_at=now + self._ttl,
-        )
-        if len(self._store) > self._max_size:
-            oldest_key = min(self._store, key=lambda k: self._store[k].ts)
-            del self._store[oldest_key]
+        
+        # Prepare JSON value
+        value = json.dumps({
+            "verdict": verdict,
+            "reason": reason,
+            "rules_matched": rules_matched,
+            "ts": now,
+            "expires_at": now + self._ttl,
+        })
+        
+        try:
+            client = await get_redis_connection()
+            await client.set(key, value, ex=self._ttl)
+            
+        except Exception as exc:
+            # Redis error - log but don't fail the scan
+            logger.warning(
+                "redis_cache_set_error",
+                key=key,
+                error=str(exc),
+                fallback_to_noop=True,
+            )
 
     @property
     def hit_count(self) -> int:
@@ -70,10 +107,27 @@ class DecisionCache:
 
     @property
     def size(self) -> int:
-        return len(self._store)
+        # For Redis, we can't get exact size without DBSIZE command
+        # Return a rough estimate based on hit/miss ratio
+        # This is a limitation of Redis cache vs in-memory dict
+        return 0  # TODO: Could implement DBSIZE call if needed
 
-    def flush(self) -> None:
-        self._store.clear()
+    async def flush(self) -> None:
+        try:
+            client = await get_redis_connection()
+            # Delete all keys with our cache prefix
+            # Note: This is a simple approach. For production, you might want a specific key pattern
+            # and use SCAN or FLUSHDB if this is the only app using this Redis instance
+            keys = await client.keys("scanner:*")
+            if keys:
+                await client.delete(*keys)
+                
+        except Exception as exc:
+            logger.warning(
+                "redis_cache_flush_error",
+                error=str(exc),
+            )
+        
         self._hits = 0
         self._misses = 0
 

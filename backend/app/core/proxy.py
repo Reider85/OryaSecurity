@@ -76,7 +76,7 @@ async def proxy_chat(request: ChatCompletionRequest) -> ChatCompletionResponse:
     prompt_text = _extract_prompt_text(request.messages)
     prompt_matches, prompt_hash = scan_text(prompt_text)
 
-    cached, cache_hit = decision_cache.get(prompt_text)
+    cached, cache_hit = await decision_cache.get(prompt_text)
 
     if cached:
         verdict_action = cached["verdict"]
@@ -93,7 +93,7 @@ async def proxy_chat(request: ChatCompletionRequest) -> ChatCompletionResponse:
         verdict_action = verdict.action
         verdict_reason = verdict.reason
         verdict_matches = [m.to_dict() for m in verdict.rules_matched]
-        decision_cache.set(prompt_text, verdict_action, verdict_reason, verdict_matches)
+        await decision_cache.set(prompt_text, verdict_action, verdict_reason, verdict_matches)
 
     latency_ms = (time.monotonic() - start_time) * 1000
 

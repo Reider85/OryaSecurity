@@ -80,3 +80,18 @@ async def test_api_key(db_pool):
 async def test_auth_headers(test_api_key: str):
     """Auth headers for test API key."""
     return {"Authorization": f"Bearer {test_api_key}"}
+
+
+@pytest.fixture
+async def fake_redis():
+    """Fake Redis client using fakeredis for unit tests."""
+    import fakeredis.aioredis
+    
+    # Create fake Redis server and client
+    server = fakeredis.FakeServer()
+    client = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    
+    yield client
+    
+    # Cleanup
+    await client.aclose()

@@ -28,6 +28,7 @@ dev = [
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
     "httpx>=0.28.0",
+    "fakeredis[lua]>=2.25.0",
 ]
 
 [tool.pytest.ini_options]

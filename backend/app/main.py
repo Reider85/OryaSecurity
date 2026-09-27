@@ -11,6 +11,7 @@ from app.api.metrics import router as metrics_router
 from app.api.openai_compat import router as openai_compat_router
 from app.api.admin_apikey import router as admin_apikey_router
 from app.db.session import init_db, close_db
+from app.db.redis_client import init_redis, close_redis
 
 structlog.configure(
     processors=[
@@ -38,13 +39,15 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
+    """Initialize database and Redis on startup."""
     await init_db()
+    await init_redis()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Close database connections on shutdown."""
+    """Close Redis and database connections on shutdown."""
+    await close_redis()
     await close_db()
 
 
