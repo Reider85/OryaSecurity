@@ -102,7 +102,7 @@ llm-security-scanner/
 
 ### EP-01: Reverse Proxy Core
 
-#### Промпт 1.1 — HTTP endpoint `/scan`
+#### Промпт 1 — HTTP endpoint `/scan`
 
 ```
 Реализуй endpoint POST /scan в backend/app/api/scan.py.
@@ -133,7 +133,7 @@ Acceptance criteria (BACKLOG story 1.1):
 Связанные ADR: ADR-0001 (Reverse Proxy), ADR-0004 partial (PDP)
 ```
 
-#### Промпт 1.2 — Прокси с инспекцией обоих направлений
+#### Промпт 2 — Прокси с инспекцией обоих направлений
 
 ```
 Реализуй прокси-логику в backend/app/core/proxy.py.
@@ -164,7 +164,7 @@ Acceptance criteria (BACKLOG story 1.1):
 Связанные ADR: ADR-0001 (Reverse Proxy)
 ```
 
-#### Промпт 1.3 — `/health` endpoint
+#### Промпт 3 — `/health` endpoint
 
 ```
 Реализуй GET /health endpoint в backend/app/api/health.py.
@@ -192,7 +192,7 @@ Acceptance criteria (BACKLOG story 1.1):
 - backend/tests/api/test_health.py
 ```
 
-#### Промпт 1.5 — OpenAI-совместимый API
+#### Промпт 4 — OpenAI-совместимый API
 
 ```
 Реализуй endpoint POST /v1/chat/completions в backend/app/api/openai_compat.py.
@@ -217,7 +217,7 @@ Acceptance criteria (BACKLOG story 1.1):
 Связанные ADR: ADR-0001
 ```
 
-#### Промпт 1.6 — Python SDK
+#### Промпт 5 — Python SDK
 
 ```
 Создай Python SDK в backend/sdk/python/.
@@ -250,7 +250,7 @@ print(result.verdict)  # "allow"
 ```
 ```
 
-#### Промпт 1.8 — API-key auth
+#### Промпт 6 — API-key auth
 
 ```
 Реализуй API-key auth в backend/app/core/auth.py.
@@ -277,7 +277,7 @@ print(result.verdict)  # "allow"
 
 ### EP-02: Rule Engine
 
-#### Промпт 2.1 — Regex для SSN, паспорта RU, email
+#### Промпт 7 — Regex для SSN, паспорта RU, email
 
 ```
 Реализуй regex-правила в backend/app/core/rules/pii.py.
@@ -305,7 +305,7 @@ Acceptance criteria (BACKLOG 2.1):
 - 90% coverage
 ```
 
-#### Промпт 2.2 — Regex для AWS keys, JWT, credit cards
+#### Промпт 8 — Regex для AWS keys, JWT, credit cards
 
 ```
 Реализуй regex-правила в backend/app/core/rules/secrets.py.
@@ -331,7 +331,7 @@ Acceptance criteria (BACKLOG 2.2):
 - 90% coverage
 ```
 
-#### Промпт 2.4 — YAML-формат правил
+#### Промпт 9 — YAML-формат правил
 
 ```
 Реализуй загрузку правил из YAML в backend/app/core/rules/loader.py.
@@ -360,7 +360,7 @@ rules:
 - backend/tests/core/rules/test_loader.py
 ```
 
-#### Промпт 2.5 — Unit-тесты для правил
+#### Промпт 10 — Unit-тесты для правил
 
 ```
 Создай comprehensive test suite для всех regex-правил в backend/tests/core/rules/.
@@ -388,7 +388,7 @@ rules:
 
 ### EP-03: Decision Cache
 
-#### Промпт 3.1 — Redis decision cache
+#### Промпт 11 — Redis decision cache
 
 ```
 Реализуй decision cache в backend/app/core/cache.py.
@@ -409,7 +409,7 @@ rules:
 - backend/tests/integration/test_cache_redis.py — integration с реальным Redis
 ```
 
-#### Промпт 3.2 — Cache hit rate метрика
+#### Промпт 12 — Cache hit rate метрика
 
 ```
 Добавь Prometheus метрики для cache в backend/app/core/metrics.py.
@@ -435,7 +435,7 @@ Endpoint /metrics в backend/app/api/metrics.py — без auth, для Promethe
 
 ### EP-04: Basic Audit
 
-#### Промпт 4.1 — PostgreSQL audit table
+#### Промпт 13 — PostgreSQL audit table
 
 ```
 Создай PostgreSQL схему для audit log.
@@ -465,7 +465,7 @@ Endpoint /metrics в backend/app/api/metrics.py — без auth, для Promethe
 - backend/app/core/audit.py — write_event(), query_events()
 ```
 
-#### Промпт 4.4 — PII redaction в audit
+#### Промпт 14 — PII redaction в audit
 
 ```
 Реализуй PII redaction layer в backend/app/core/redactor.py.
@@ -490,7 +490,7 @@ Endpoint /metrics в backend/app/api/metrics.py — без auth, для Promethe
 
 ### EP-05: Hardcoded PDP
 
-#### Промпт 5.1 — Hardcoded PDP
+#### Промпт 15 — Hardcoded PDP
 
 ```
 Реализуй hardcoded Policy Decision Point в backend/app/core/pdp.py.
@@ -514,7 +514,7 @@ PDP_CONFIG = {
 - backend/tests/core/test_pdp.py
 ```
 
-#### Промпт 5.2 — `X-Scanner-Verdict` header
+#### Промпт 16 — `X-Scanner-Verdict` header
 
 ```
 Добавь header X-Scanner-Verdict во все responses.
@@ -538,7 +538,7 @@ PDP_CONFIG = {
 
 ### EP-06: MVP Deployment
 
-#### Промпт 6.1 — docker-compose.yml
+#### Промпт 17 — docker-compose.yml
 
 ```
 Создай docker-compose.yml в корне репозитория.
@@ -585,7 +585,7 @@ Volumes: pg_data, redis_data
 - prometheus.yml
 ```
 
-#### Промпт 6.2 — Dockerfile для scanner
+#### Промпт 18 — Dockerfile для scanner
 
 ```
 Создай Dockerfile в backend/.
@@ -606,7 +606,7 @@ Multi-stage build:
 - backend/entrypoint.sh — DB migrations перед стартом
 ```
 
-#### Промпт 6.5 — `/metrics` Prometheus endpoint
+#### Промпт 19 — `/metrics` Prometheus endpoint
 
 ```
 Добавь /metrics endpoint в backend/app/api/metrics.py.
@@ -634,7 +634,7 @@ Endpoint:
 
 ### EP-43: Web UI Dashboard (Next.js + shadcn/ui)
 
-#### Промпт 43.1 — Next.js app + layout
+#### Промпт 20 — Next.js app + layout
 
 ```
 Создай Next.js приложение в frontend/.
@@ -693,7 +693,7 @@ npx shadcn@latest add button card table input textarea badge dialog tabs
 Файлы: все вышеуказанные
 ```
 
-#### Промпт 43.2 — Главная страница с live-метриками
+#### Промпт 21 — Главная страница с live-метриками
 
 ```
 Реализуй главную страницу frontend/app/(dashboard)/page.tsx.
@@ -728,7 +728,7 @@ API endpoints (создай если их нет):
 - backend/tests/api/test_metrics_v1.py
 ```
 
-#### Промпт 43.3 — Audit Log страница с фильтрами
+#### Промпт 22 — Audit Log страница с фильтрами
 
 ```
 Реализуй страницу frontend/app/(dashboard)/audit/page.tsx.
@@ -764,7 +764,7 @@ API: GET /api/v1/audit?filters...&page=1&per_page=50
 - backend/tests/api/test_audit_v1.py
 ```
 
-#### Промпт 43.4 — Rules Editor (YAML)
+#### Промпт 23 — Rules Editor (YAML)
 
 ```
 Реализуй страницу frontend/app/(dashboard)/rules/page.tsx.
@@ -804,7 +804,7 @@ API:
 - backend/tests/api/test_rules_v1.py
 ```
 
-#### Промпт 43.5 — Test page (отправить промпт → вердикт)
+#### Промпт 24 — Test page (отправить промпт → вердикт)
 
 ```
 Реализуй страницу frontend/app/(dashboard)/test/page.tsx.
@@ -835,7 +835,7 @@ API: POST /scan с {prompt: str}
 - frontend/lib/api.ts — scanPrompt(text)
 ```
 
-#### Промпт 43.6 — Cache Management page
+#### Промпт 25 — Cache Management page
 
 ```
 Реализуй страницу frontend/app/(dashboard)/cache/page.tsx.
@@ -873,7 +873,7 @@ API:
 - backend/tests/api/test_cache_v1.py
 ```
 
-#### Промпт 43.7 — Config page
+#### Промпт 26 — Config page
 
 ```
 Реализуй страницу frontend/app/(dashboard)/config/page.tsx.
@@ -916,7 +916,7 @@ API:
 - backend/tests/api/test_config_v1.py
 ```
 
-#### Промпт 43.8 — Authentication для UI
+#### Промпт 27 — Authentication для UI
 
 ```
 Реализуй auth для UI.
@@ -940,7 +940,7 @@ API:
 - backend/tests/api/test_auth_v1.py
 ```
 
-#### Промпт 43.10 — Dockerfile для UI
+#### Промпт 28 — Dockerfile для UI
 
 ```
 Создай Dockerfile для frontend/.
@@ -959,7 +959,7 @@ next.config.js: output: 'standalone'
 - frontend/next.config.js (добавь output: 'standalone')
 ```
 
-#### Промпт 43.11 — Decision Explorer page
+#### Промпт 29 — Decision Explorer page
 
 ```
 Реализуй страницу frontend/app/(dashboard)/decisions/page.tsx.
@@ -991,7 +991,7 @@ API: GET /api/v1/decisions?limit=50 — то же что audit, но с расш
 
 ## 3. Промпты для тестирования (cross-cutting)
 
-#### Промпт TEST-01 — Unit tests 90% coverage
+#### Промпт 30 — Unit tests 90% coverage
 
 ```
 Добейся 90% test coverage для всего backend кода.
@@ -1025,7 +1025,7 @@ addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-unde
 - backend/tests/README.md
 ```
 
-#### Промпт TEST-02 — Integration tests
+#### Промпт 31 — Integration tests
 
 ```
 Создай integration tests для всего scanner pipeline в backend/tests/integration/.
@@ -1054,7 +1054,7 @@ addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-unde
 
 ## 4. Промпты для документации
 
-#### Промпт DOC-01 — README + Quick Start
+#### Промпт 32 — README + Quick Start
 
 ```
 Создай README.md в корне репозитория.
@@ -1087,7 +1087,7 @@ addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-unde
 - docs/api.md — auto-generated из OpenAPI (см. EP-41.6)
 ```
 
-#### Промпт DOC-02 — API Reference (OpenAPI)
+#### Промпт 33 — API Reference (OpenAPI)
 
 ```
 Сгенерируй OpenAPI 3.1 spec для backend.
@@ -1119,7 +1119,7 @@ redocly bundle backend/app/openapi.json --output docs/openapi.yaml
 
 ## 5. Финальная интеграция (финальный спринт MVP)
 
-#### Промпт FINAL-MVP — E2E тест
+#### Промпт 34 — E2E тест
 
 ```
 Создай E2E тест для проверки всего MVP pipeline.
