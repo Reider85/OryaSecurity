@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.models.scan import ScanRequest, ScanResponse, RuleMatchResponse
-from app.core.auth import verify_api_key
+from app.core.auth import verify_api_key, AuthInfo
 from app.core.pdp import scan_text, decide
 from app.core.cache import decision_cache
 from app.core.audit import write_audit_event
@@ -23,7 +23,7 @@ router = APIRouter(tags=["scan"])
 async def scan_endpoint(
     body: ScanRequest,
     request: Request,
-    _api_key: str = Depends(verify_api_key),
+    auth_info: AuthInfo = Depends(verify_api_key),
 ) -> JSONResponse:
     request_id = str(uuid.uuid4())
     start = time.perf_counter()
@@ -63,7 +63,7 @@ async def scan_endpoint(
 
     write_audit_event(
         request_id=request_id,
-        tenant_id=body.tenant_id,
+        tenant_id=auth_info.tenant_id or body.tenant_id,
         prompt_hash=prompt_hash,
         verdict=verdict.action,
         reason=verdict.reason,

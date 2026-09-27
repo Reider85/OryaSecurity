@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     api_keys: list[str] = ["dev-key-12345"]
+    default_tenant_id: str = "default"
 
     cache_ttl_seconds: int = 300
     cache_max_size: int = 10000

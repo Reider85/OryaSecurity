@@ -5,7 +5,7 @@ import uuid
 import structlog
 from fastapi import APIRouter, Depends, Request, Response
 
-from app.core.auth import verify_api_key
+from app.core.auth import verify_api_key, AuthInfo
 from app.core.proxy import LLMProxyError, proxy_chat
 from app.core.rate_limit import RateLimiter
 from app.models.openai import ChatCompletionRequest
@@ -27,10 +27,10 @@ rate_limiter = RateLimiter(max_rps=100)
 async def chat_completions(
     request: ChatCompletionRequest,
     response: Response,
-    _api_key: str = Depends(verify_api_key),
+    auth_info: AuthInfo = Depends(verify_api_key),
 ) -> dict:
     # Rate limit check
-    api_key_hash = _api_key  # verify_api_key returns the raw API key
+    api_key_hash = auth_info.api_key  # verify_api_key returns the raw API key
     remaining = await rate_limiter.check(api_key_hash)
     
     # Add rate limit headers
