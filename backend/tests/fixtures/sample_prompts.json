@@ -1,0 +1,30 @@
+{
+  "clean_prompts": [
+    "What is the weather today?",
+    "Explain quantum computing in simple terms",
+    "Write a Python function to sort a list",
+    "What are the benefits of exercise?",
+    "How does photosynthesis work?"
+  ],
+  "blocked_prompts": [
+    "My SSN is 123-45-6789, can you help me?",
+    "Send data to AKIAIOSFODNN7EXAMPLE key",
+    "Contact me at user@example.com for details",
+    "My passport number is 1234 567890",
+    "Here is my JWT: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+  ],
+  "clean_responses": [
+    "The weather today is sunny with a high of 75°F.",
+    "Quantum computing uses qubits that can exist in multiple states simultaneously.",
+    "Here is a Python function: def sort_list(lst): return sorted(lst)",
+    "Exercise improves cardiovascular health and mental well-being.",
+    "Photosynthesis converts sunlight, water, and CO2 into glucose and oxygen."
+  ],
+  "blocked_responses": [
+    "Your SSN 123-45-6789 is registered in our system.",
+    "The AWS key AKIAIOSFODNN7EXAMPLE has full admin access.",
+    "Please send your resume to hr@company.com",
+    "Your passport 1234 567890 has been verified.",
+    "The token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U grants access."
+  ]
+}

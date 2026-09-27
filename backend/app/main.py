@@ -8,6 +8,7 @@ from app.config import settings
 from app.api.scan import router as scan_router
 from app.api.health import router as health_router
 from app.api.metrics import router as metrics_router
+from app.api.openai_compat import router as openai_compat_router
 
 structlog.configure(
     processors=[
@@ -35,3 +36,4 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(metrics_router)
 app.include_router(scan_router)
+app.include_router(openai_compat_router)
