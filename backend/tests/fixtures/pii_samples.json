@@ -1,0 +1,88 @@
+{
+  "positive": {
+    "ssn": [
+      "123-45-6789",
+      "001-01-0001",
+      "999-99-9999",
+      "My SSN is 123-45-6789",
+      "ID: 456-78-9012",
+      "SSN: 111-22-3333 in text",
+      "Contact 987-65-4321 for support",
+      "Tax ID 123-45-6789",
+      "Social Security: 555-12-3456",
+      "Patient ID: 777-88-9999"
+    ],
+    "email": [
+      "user@example.com",
+      "test.name+tag@domain.co",
+      "a@b.cc",
+      "admin@company.org",
+      "x.y@z.com",
+      "contact+support@business.com",
+      "user123@sub.domain.net",
+      "email@test.io",
+      "support@localhost",
+      "info@service.org"
+    ],
+    "passport_ru": [
+      "1234 567890",
+      "0000 000000",
+      "9999 999999",
+      "Паспорт 1234567890",
+      "1234567890",
+      "ID: 1234 567890",
+      "Passport: 9876 543210",
+      "Document 1111 222222",
+      "Citizen ID 5555 666666",
+      "Passport number 7777 888888"
+    ]
+  },
+  "negative": {
+    "ssn": [
+      "12345",
+      "12-34-5678",
+      "123-456-7890",
+      "abc-def-ghij",
+      "1234-567-890",
+      "123-45-678",
+      "12345-6789",
+      "123-456-789",
+      "123-45-67890",
+      "1234-56-789"
+    ],
+    "email": [
+      "plainaddress",
+      "@missing.com",
+      "user@",
+      "user@.com",
+      "user@com",
+      "@domain.com",
+      "user@.domain",
+      "user..name@domain.com",
+      "user@domain.",
+      "user@domain.c"
+    ],
+    "passport_ru": [
+      "123 456 7890",
+      "12345",
+      "12345678901",
+      "abcd efghij",
+      "1234 567 890",
+      "12345678",
+      "123456789012",
+      "abcd1234",
+      "1234-567890",
+      "1234.567890"
+    ]
+  },
+  "edge_cases": {
+    "empty": "",
+    "unicode": "Пользователь user@example.com с SSN 123-45-6789",
+    "long_text": "This is a very long text with multiple PII: user@example.com, SSN 123-45-6789, and passport 1234 567890. The text continues with more content to test long string handling.",
+    "multiple_matches": "Emails: user1@example.com, user2@test.org, user3@domain.com. SSNs: 123-45-6789, 987-65-4321. Passports: 1234 567890, 9876 543210.",
+    "embedded_pii": "Contact: support@company.com or call 123-45-6789. Passport: 1234 567890.",
+    "position_start": "123-45-6789 is my SSN",
+    "position_end": "My SSN is 123-45-6789",
+    "position_middle": "Contact me at user@example.com for help"
+  }
+}

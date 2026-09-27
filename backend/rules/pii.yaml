@@ -1,0 +1,22 @@
+rules:
+  - id: pii_ssn_us
+    name: "US Social Security Number"
+    type: regex
+    pattern: '\b\d{3}-\d{2}-\d{4}\b'
+    severity: high
+    action: block
+    version: "1.0.0"
+  - id: pii_email
+    name: "Email Address"
+    type: regex
+    pattern: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+    severity: medium
+    action: block
+    version: "1.0.0"
+  - id: pii_passport_ru
+    name: "Russian Passport Number"
+    type: regex
+    pattern: '\b\d{4}\s?\d{6}\b'
+    severity: high
+    action: block
+    version: "1.0.0"
