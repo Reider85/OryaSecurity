@@ -12,3 +12,9 @@ build/
 # Virtual environments
 .venv/
 venv/
+
+# Temporary test files
+run_secrets_tests.py
+run_test.bat
+simple_test.py
+test_minimal.py

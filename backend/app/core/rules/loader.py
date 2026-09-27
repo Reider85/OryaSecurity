@@ -109,3 +109,93 @@ def check_pii_with_yaml(text: str, rules_path: str = "rules/pii.yaml") -> List[R
     """Check for PII using YAML-configured rules."""
     rules = get_pii_rules(rules_path)
     return match_pii_with_rules(text, rules)
+
+
+def load_secrets_rules(rules_path: str) -> List[Dict[str, Any]]:
+    """Load secrets rules from YAML file."""
+    try:
+        with open(rules_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+            return data.get('rules', [])
+    except (FileNotFoundError, yaml.YAMLError):
+        # Fallback to empty list if YAML file is missing or invalid
+        return []
+
+
+def get_secrets_rules(rules_path: str = "rules/secrets.yaml") -> List[Dict[str, Any]]:
+    """Get secrets rules from YAML, fallback to hardcoded if needed."""
+    rules = load_secrets_rules(rules_path)
+    
+    # If no rules loaded from YAML, return hardcoded defaults
+    if not rules:
+        return [
+            {
+                "id": "secret_aws_key",
+                "name": "AWS Access Key",
+                "type": "regex",
+                "pattern": r"\bAKIA[0-9A-Z]{16}\b",
+                "severity": "critical",
+                "action": "block",
+                "version": "1.0.0"
+            },
+            {
+                "id": "secret_jwt",
+                "name": "JSON Web Token",
+                "type": "regex",
+                "pattern": r"\beyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b",
+                "severity": "high",
+                "action": "block",
+                "version": "1.0.0"
+            },
+            {
+                "id": "secret_credit_card",
+                "name": "Credit Card Number",
+                "type": "regex",
+                "pattern": r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b",
+                "severity": "critical",
+                "action": "block",
+                "version": "1.0.0"
+            }
+        ]
+    
+    return rules
+
+
+def match_secrets_with_rules(text: str, rules: List[Dict[str, Any]) -> List[RuleMatch]:
+    """Match secrets using loaded YAML rules."""
+    matches: List[RuleMatch] = []
+    
+    for rule in rules:
+        if rule.get('type') != 'regex':
+            continue
+            
+        pattern_str = rule.get('pattern', '')
+        if not pattern_str:
+            continue
+            
+        rule_id = rule.get('id', 'unknown')
+        rule_name = rule.get('name', 'Unknown Rule')
+        severity = rule.get('severity', 'medium')
+        action = rule.get('action', 'block')
+        
+        pattern = _compile_pattern(pattern_str)
+        
+        for m in pattern.finditer(text):
+            matches.append(
+                RuleMatch(
+                    rule_id=rule_id,
+                    rule_name=rule_name,
+                    value_hash=_hash_value(m.group()),
+                    position=(m.start(), m.end()),
+                    severity=severity,
+                    action=action,
+                )
+            )
+    
+    return matches
+
+
+def check_secrets_with_yaml(text: str, rules_path: str = "rules/secrets.yaml") -> List[RuleMatch]:
+    """Check for secrets using YAML-configured rules."""
+    rules = get_secrets_rules(rules_path)
+    return match_secrets_with_rules(text, rules)
