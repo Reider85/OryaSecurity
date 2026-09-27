@@ -1,0 +1,14 @@
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
