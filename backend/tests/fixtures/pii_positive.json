@@ -1,0 +1,38 @@
+{
+  "ssn": [
+    "123-45-6789",
+    "987-65-4321",
+    "000-00-0000",
+    "555-12-3456",
+    "001-01-0001",
+    "999-99-9999",
+    "My SSN is 123-45-6789",
+    "SSN: 123-45-6789, please contact",
+    "Contact: 123-45-6789 for verification",
+    "ID number: 123-45-6789"
+  ],
+  "email": [
+    "user@example.com",
+    "test.email@domain.com",
+    "user+tag@sub.domain.com",
+    "email123@service.io",
+    "support@localhost",
+    "test@domain.co.uk",
+    "Contact me at user@example.com",
+    "Email: user.name@company.org",
+    "My email is user+test@domain.net",
+    "support@service.io"
+  ],
+  "passport_ru": [
+    "1234567890",
+    "1234 567890",
+    "1234-567890",
+    "My passport is 1234567890",
+    "Passport: 1234 567890",
+    "ID: 1234567890",
+    "1234 567890",
+    "1234-567890",
+    "1234567890",
+    "Passport number: 1234 567890"
+  ]
+}

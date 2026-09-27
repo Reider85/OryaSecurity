@@ -136,15 +136,15 @@ class RuleSet:
         if not rules_data or 'rules' not in rules_data:
             return rules
         
+        # Validate entire file against schema (not per-rule)
+        if schema:
+            try:
+                jsonschema.validate(rules_data, schema)
+            except jsonschema.ValidationError as e:
+                print(f"Invalid rules file {source_file}: {e.message}")
+                return rules
+        
         for rule_data in rules_data['rules']:
-            # Validate rule against schema
-            if schema:
-                try:
-                    jsonschema.validate(rule_data, schema)
-                except jsonschema.ValidationError as e:
-                    print(f"Invalid rule in {source_file}: {e.message}")
-                    continue
-            
             # Create Rule object
             try:
                 rule = Rule(
