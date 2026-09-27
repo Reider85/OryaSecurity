@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     llm_provider_url: str = "http://localhost:8001"
     llm_timeout_seconds: int = 30
 
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/scanner"
+    redis_url: str = "redis://localhost:6379/0"
+
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "SCANNER_"}
