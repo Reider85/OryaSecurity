@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/scanner"
     redis_url: str = "redis://localhost:6379/0"
 
+    rate_limit_rps: int = 100
+
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "SCANNER_"}
