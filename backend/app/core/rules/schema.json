@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LLM Security Scanner Rules Schema",
+  "description": "Schema for YAML rule files used by the LLM Security Scanner",
+  "type": "object",
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/rule"
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["rules"],
+  "definitions": {
+    "rule": {
+      "type": "object",
+      "required": ["id", "name", "type", "pattern", "severity", "action", "version"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the rule",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for the rule",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of rule",
+          "enum": ["regex"]
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Regular expression pattern to match",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "description": "Severity level of the rule",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "action": {
+          "type": "string",
+          "description": "Action to take when rule matches",
+          "enum": ["allow", "block", "log_only"]
+        },
+        "version": {
+          "type": "string",
+          "description": "Version of the rule",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description of the rule"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the rule is enabled (default: true)",
+          "default": true
+        }
+      }
+    }
+  }
+}

@@ -3,13 +3,17 @@ from __future__ import annotations
 import hashlib
 
 from app.core.rules.base import RuleMatch, Verdict
-from app.core.rules.pii import check_pii
-from app.core.rules.secrets import check_secrets
+from app.core.rules.loader import RuleSet
 from app.config import settings
 
 
+# Global RuleSet instance (singleton pattern)
+rule_set = RuleSet()
+
+
 def scan_text(text: str) -> tuple[list[RuleMatch], str]:
-    all_matches = check_pii(text) + check_secrets(text)
+    """Scan text using the RuleSet for all enabled rules."""
+    all_matches = rule_set.match(text)
     prompt_hash = hashlib.sha256(text.encode()).hexdigest()
     return all_matches, prompt_hash
 
