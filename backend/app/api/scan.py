@@ -6,11 +6,15 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+import structlog
+
 from app.models.scan import ScanRequest, ScanResponse, RuleMatchResponse
 from app.core.auth import verify_api_key, AuthInfo
 from app.core.pdp import scan_text, decide
 from app.core.cache import decision_cache
-from app.core.audit import write_audit_event
+from app.core.audit import write_event
+
+logger = structlog.get_logger()
 
 router = APIRouter(tags=["scan"])
 
@@ -61,16 +65,19 @@ async def scan_endpoint(
         rules_matched=rules_matched_dicts,
     )
 
-    write_audit_event(
-        request_id=request_id,
-        tenant_id=auth_info.tenant_id or body.tenant_id,
-        prompt_hash=prompt_hash,
-        verdict=verdict.action,
-        reason=verdict.reason,
-        rules_matched=rules_matched_dicts,
-        latency_ms=latency_ms,
-        metadata=body.metadata,
-    )
+    try:
+        await write_event(
+            request_id=request_id,
+            tenant_id=auth_info.tenant_id or body.tenant_id,
+            prompt_hash=prompt_hash,
+            verdict=verdict.action,
+            reason=verdict.reason,
+            rules_matched=rules_matched_dicts,
+            latency_ms=latency_ms,
+            metadata=body.metadata,
+        )
+    except Exception:
+        logger.warning("audit_write_error", request_id=request_id, exc_info=True)
 
     response = ScanResponse(
         verdict=verdict.action,
