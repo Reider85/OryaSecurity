@@ -9,6 +9,12 @@ from typing import Any
 import structlog
 from app.config import settings
 from app.db.redis_client import get_redis_connection
+from app.core.metrics import (
+    scanner_cache_hits_total,
+    scanner_cache_misses_total,
+    scanner_cache_size,
+    scanner_cache_latency_seconds,
+)
 
 logger = structlog.get_logger()
 
@@ -34,12 +40,15 @@ class DecisionCache:
 
     async def get(self, prompt: str) -> tuple[dict | None, bool]:
         key = self._make_key(prompt)
+        start_time = time.time()
+        
         try:
             client = await get_redis_connection()
             value = await client.get(key)
             
             if value is None:
                 self._misses += 1
+                scanner_cache_misses_total.labels(type="decision").inc()
                 return None, False
             
             # Parse JSON value
@@ -50,9 +59,19 @@ class DecisionCache:
             if expires_at and time.time() > expires_at:
                 await client.delete(key)
                 self._misses += 1
+                scanner_cache_misses_total.labels(type="decision").inc()
                 return None, False
             
             self._hits += 1
+            scanner_cache_hits_total.labels(type="decision").inc()
+            
+            # Record latency
+            latency = time.time() - start_time
+            scanner_cache_latency_seconds.observe(latency)
+            
+            # Update cache size (rough estimate)
+            scanner_cache_size.set(self.size)
+            
             return {
                 "verdict": data["verdict"],
                 "reason": data["reason"],
@@ -62,6 +81,9 @@ class DecisionCache:
             
         except Exception as exc:
             # Redis error - fallback to miss
+            latency = time.time() - start_time
+            scanner_cache_latency_seconds.observe(latency)
+            
             logger.warning(
                 "redis_cache_get_error",
                 key=key,
@@ -69,6 +91,7 @@ class DecisionCache:
                 fallback_to_miss=True,
             )
             self._misses += 1
+            scanner_cache_misses_total.labels(type="decision").inc()
             return None, False
 
     async def set(self, prompt: str, verdict: str, reason: str, rules_matched: list[dict]) -> None:
@@ -87,6 +110,9 @@ class DecisionCache:
         try:
             client = await get_redis_connection()
             await client.set(key, value, ex=self._ttl)
+            
+            # Update cache size metric
+            scanner_cache_size.set(self.size)
             
         except Exception as exc:
             # Redis error - log but don't fail the scan
@@ -130,6 +156,7 @@ class DecisionCache:
         
         self._hits = 0
         self._misses = 0
+        scanner_cache_size.set(0)
 
 
 decision_cache = DecisionCache()
