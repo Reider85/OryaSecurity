@@ -13,6 +13,7 @@ from app.core.auth import verify_api_key, AuthInfo
 from app.core.pdp import scan_text, decide
 from app.core.cache import decision_cache
 from app.core.audit import write_event
+from app.core.redactor import redact
 
 logger = structlog.get_logger()
 
@@ -73,6 +74,7 @@ async def scan_endpoint(
             verdict=verdict.action,
             reason=verdict.reason,
             rules_matched=rules_matched_dicts,
+            prompt_text_redacted=redact(body.prompt, matches),
             latency_ms=latency_ms,
             metadata=body.metadata,
         )

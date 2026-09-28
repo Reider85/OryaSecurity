@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     pdp_block_on_severity: list[str] = ["high", "critical"]
 
     audit_enabled: bool = True
+    redact_audit_prompt: bool = True
     policy_version: str = "mvp-1.0"
 
     llm_provider_url: str = "http://localhost:8001"
