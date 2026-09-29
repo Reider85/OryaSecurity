@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 
-from app.core.auth import verify_api_key
+from app.core.auth import verify_api_key, _fingerprint_api_key
 from app.db.session import get_db_connection
 from app.db.models import ApiKeyRecord
 from app.models.apikey import (
@@ -47,10 +47,12 @@ async def create_api_key(
     # Generate and hash the key
     api_key = _generate_api_key()
     key_hash = _hash_api_key(api_key)
+    key_fingerprint = _fingerprint_api_key(api_key)
     
     # Create record
     record = ApiKeyRecord.create(
         key_hash=key_hash,
+        key_fingerprint=key_fingerprint,
         tenant_id=request.tenant_id,
         active=request.active,
     )
@@ -59,11 +61,12 @@ async def create_api_key(
     async with get_db_connection() as conn:
         await conn.execute(
             """
-            INSERT INTO api_keys (id, key_hash, tenant_id, created_at, active)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO api_keys (id, key_hash, key_fingerprint, tenant_id, created_at, active)
+            VALUES ($1, $2, $3, $4, $5, $6)
             """,
             record.id,
             record.key_hash,
+            record.key_fingerprint,
             record.tenant_id,
             record.created_at,
             record.active,

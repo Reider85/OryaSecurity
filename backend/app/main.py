@@ -13,6 +13,7 @@ from app.api.admin_apikey import router as admin_apikey_router
 from app.core.headers import ScannerHeadersMiddleware
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
+from app.core.bootstrap import ensure_bootstrap_api_keys
 
 structlog.configure(
     processors=[
@@ -45,9 +46,10 @@ app.add_middleware(ScannerHeadersMiddleware)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database and Redis on startup."""
+    """Initialize database, Redis, and ensure bootstrap API keys on startup."""
     await init_db()
     await init_redis()
+    await ensure_bootstrap_api_keys()
 
 
 @app.on_event("shutdown")

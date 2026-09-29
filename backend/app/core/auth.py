@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import bcrypt
+import hashlib
 import uuid
 from typing import Any, Dict, Optional
 
@@ -17,6 +18,11 @@ def _hash_api_key(api_key: str) -> str:
     """Hash an API key using bcrypt."""
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(api_key.encode(), salt).decode()
+
+
+def _fingerprint_api_key(api_key: str) -> str:
+    """Generate a SHA256 fingerprint for API key lookup (constant time)."""
+    return hashlib.sha256(api_key.encode()).hexdigest()
 
 
 def _verify_api_key_hash(api_key: str, key_hash: str) -> bool:
@@ -40,16 +46,17 @@ async def verify_api_key(
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
     api_key = credentials.credentials
+    api_key_fingerprint = _fingerprint_api_key(api_key)
     
-    # Check database for the API key
+    # Check database for the API key fingerprint
     async with get_db_connection() as conn:
         record = await conn.fetchrow(
             """
-            SELECT key_hash, tenant_id, active
+            SELECT id, key_hash, tenant_id, active
             FROM api_keys
-            WHERE key_hash = $1
+            WHERE key_fingerprint = $1
             """,
-            _hash_api_key(api_key),
+            api_key_fingerprint,
         )
         
         if not record:
@@ -57,6 +64,10 @@ async def verify_api_key(
         
         if not record["active"]:
             raise HTTPException(status_code=403, detail="API key is inactive")
+        
+        # Verify the actual key using bcrypt (to prevent hash collisions)
+        if not _verify_api_key_hash(api_key, record["key_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid API key")
         
         # Store tenant_id in request state for downstream use
         if request:

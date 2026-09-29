@@ -1,0 +1,109 @@
+name: llm-security-scanner
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-scanner}
+      POSTGRES_USER: ${POSTGRES_USER:-scanner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scanner}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scanner} -d ${POSTGRES_DB:-scanner}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  scanner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SCANNER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scanner}:${POSTGRES_PASSWORD:-scanner}@postgres:5432/${POSTGRES_DB:-scanner}
+      SCANNER_REDIS_URL: redis://redis:6379/0
+      SCANNER_LLM_PROVIDER_URL: ${LLM_PROVIDER_URL:-http://host.docker.internal:8001}
+      SCANNER_API_KEYS: '["${API_KEY_DEFAULT:-dev-key-12345}"]'
+      SCANNER_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SCANNER_CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      SCANNER_DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default}
+      SCANNER_PDP_DEFAULT_ACTION: ${PDP_DEFAULT_ACTION:-allow}
+      SCANNER_PDP_BLOCK_ON_SEVERITY: '["${PDP_BLOCK_ON_SEVERITY:-high,critical}"]'
+      SCANNER_AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+      SCANNER_REDACT_AUDIT_PROMPT: ${REDACT_AUDIT_PROMPT:-true}
+      SCANNER_POLICY_VERSION: ${POLICY_VERSION:-mvp-1.0}
+      SCANNER_LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      SCANNER_RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-100}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  ui:
+    profiles: ["ui"]
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      scanner:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      scanner:
+        condition: service_started
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.1.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  pg_data:
+  redis_data:
+  grafana_data:

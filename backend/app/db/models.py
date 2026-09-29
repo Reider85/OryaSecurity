@@ -65,14 +65,16 @@ class ApiKeyRecord:
     """Database record for API keys."""
     id: uuid.UUID
     key_hash: str
-    tenant_id: str
-    created_at: datetime
+    key_fingerprint: str | None = None
+    tenant_id: str = "default"
+    created_at: datetime | None = None
     active: bool = True
     
     @classmethod
     def create(
         cls,
         key_hash: str,
+        key_fingerprint: str | None = None,
         tenant_id: str = "default",
         active: bool = True,
     ) -> "ApiKeyRecord":
@@ -80,6 +82,7 @@ class ApiKeyRecord:
         return cls(
             id=uuid.uuid4(),
             key_hash=key_hash,
+            key_fingerprint=key_fingerprint,
             tenant_id=tenant_id,
             created_at=datetime.utcnow(),
             active=active,

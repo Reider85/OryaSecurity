@@ -24,12 +24,20 @@ _engine: Optional[AsyncEngine] = None
 _sessionmaker: Optional[async_sessionmaker[AsyncSession]] = None
 
 
+def _normalize_asyncpg_dsn(dsn: str) -> str:
+    """Normalize database URL for asyncpg (remove +asyncpg suffix if present)."""
+    if dsn.startswith("postgresql+asyncpg://"):
+        return dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return dsn
+
+
 async def get_pool() -> asyncpg.Pool:
     """Get the global connection pool. Initialize if not exists."""
     global _pool
     if _pool is None:
+        normalized_dsn = _normalize_asyncpg_dsn(settings.database_url)
         _pool = await asyncpg.create_pool(
-            settings.database_url,
+            normalized_dsn,
             min_size=2,
             max_size=10,
             command_timeout=60,

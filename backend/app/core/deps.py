@@ -9,12 +9,20 @@ import redis.asyncio as redis
 from app.config import settings
 
 
+def _normalize_asyncpg_dsn(dsn: str) -> str:
+    """Normalize database URL for asyncpg (remove +asyncpg suffix if present)."""
+    if dsn.startswith("postgresql+asyncpg://"):
+        return dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return dsn
+
+
 async def check_postgres() -> bool:
     """Check if PostgreSQL database is available and responsive."""
     try:
         # Create connection pool to test connectivity
+        normalized_dsn = _normalize_asyncpg_dsn(settings.database_url)
         pool = await asyncpg.create_pool(
-            settings.database_url,
+            normalized_dsn,
             min_size=1,
             max_size=1,
             command_timeout=5,
