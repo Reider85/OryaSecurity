@@ -20,3 +20,17 @@ rules:
     severity: high
     action: block
     version: "1.0.0"
+  - id: pii_phone
+    name: "Phone Number"
+    type: regex
+    pattern: '\b\+?[1-9]\d{1,14}\b'
+    severity: low
+    action: log_only
+    version: "1.0.0"
+  - id: pii_username
+    name: "Username Pattern"
+    type: regex
+    pattern: '\buser_[a-zA-Z0-9]{8,}\b'
+    severity: low
+    action: log_only
+    version: "1.0.0"

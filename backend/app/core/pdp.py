@@ -23,10 +23,12 @@ def decide(matches: list[RuleMatch]) -> Verdict:
         return Verdict(action="allow", reason="No rules matched")
 
     block_matches = [m for m in matches if m.action == "block"]
+    log_only_matches = [m for m in matches if m.action == "log_only"]
     high_severity = [
         m for m in matches if m.severity in settings.pdp_block_on_severity
     ]
 
+    # If any block rules match or high severity matches → BLOCK
     if block_matches or high_severity:
         rule_ids = ", ".join(m.rule_id for m in block_matches or high_severity)
         return Verdict(
@@ -35,4 +37,14 @@ def decide(matches: list[RuleMatch]) -> Verdict:
             rules_matched=matches,
         )
 
+    # If only log_only rules match → ALLOW (but log the matches)
+    if log_only_matches and not block_matches and not high_severity:
+        rule_ids = ", ".join(m.rule_id for m in log_only_matches)
+        return Verdict(
+            action="allow",
+            reason=f"Rules matched for logging: {rule_ids}",
+            rules_matched=matches,
+        )
+
+    # Default case: allow (no blocking rules)
     return Verdict(action="allow", reason="Rules matched but none require blocking", rules_matched=matches)
