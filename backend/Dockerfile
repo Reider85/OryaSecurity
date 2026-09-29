@@ -16,13 +16,14 @@ WORKDIR /app
 # Copy pyproject.toml and uv.lock
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies
-RUN uv pip install --system --no-cache-dir -e .
+# Create virtual environment and install dependencies
+RUN uv venv
+RUN uv pip install --no-cache-dir -e .
 
 # Copy source code
 COPY app/ app/
 COPY rules/ rules/
-COPY alembic.ini alembic/
+COPY alembic.ini .
 COPY alembic/ alembic/
 
 # Runtime stage
@@ -45,6 +46,7 @@ COPY --from=builder /app/app/ app/
 COPY --from=builder /app/rules/ rules/
 COPY --from=builder /app/alembic.ini alembic.ini
 COPY --from=builder /app/alembic/ alembic/
+COPY --from=builder /app/entrypoint.sh entrypoint.sh
 
 # Set permissions
 RUN chown -R scanner:scanner /app
@@ -58,4 +60,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://localhost:8000/health || exit 1
 
 # Start the application
-CMD ["uv", "run", "python", "-m", "app.main"]
+ENTRYPOINT ["./entrypoint.sh"]

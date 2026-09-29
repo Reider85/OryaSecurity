@@ -62,6 +62,9 @@ Thumbs.db
 # Docker
 .dockerignore
 
+# Git
+.git/
+
 # Documentation
 *.md
 docs/
@@ -80,6 +83,9 @@ docs/
 *.bak
 *.swp
 *.swo
+
+# Tests
+tests/
 
 # Project specific
 test_pdp.bat
