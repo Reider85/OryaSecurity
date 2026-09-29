@@ -5,6 +5,7 @@ import hashlib
 from app.core.rules.base import RuleMatch, Verdict
 from app.core.rules.loader import RuleSet
 from app.config import settings
+from app.core.metrics import scanner_rules_matched_total
 
 
 # Global RuleSet instance (singleton pattern)
@@ -15,6 +16,11 @@ def scan_text(text: str) -> tuple[list[RuleMatch], str]:
     """Scan text using the RuleSet for all enabled rules."""
     all_matches = rule_set.match(text)
     prompt_hash = hashlib.sha256(text.encode()).hexdigest()
+    
+    # Increment rules matched counter for each matched rule
+    for match in all_matches:
+        scanner_rules_matched_total.labels(rule_id=match.rule_id).inc()
+    
     return all_matches, prompt_hash
 
 

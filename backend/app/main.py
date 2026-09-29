@@ -14,6 +14,10 @@ from app.core.headers import ScannerHeadersMiddleware
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
 from app.core.bootstrap import ensure_bootstrap_api_keys
+from app.core.metrics import scanner_uptime_seconds, python_info
+import time
+import sys
+import platform
 
 structlog.configure(
     processors=[
@@ -50,6 +54,14 @@ async def startup_event():
     await init_db()
     await init_redis()
     await ensure_bootstrap_api_keys()
+    
+    # Initialize uptime and Python info metrics
+    scanner_uptime_seconds.set(time.time())
+    python_info.labels(
+        version=sys.version.split()[0],
+        implementation=platform.python_implementation(),
+        platform=platform.platform(),
+    ).set(1)
 
 
 @app.on_event("shutdown")

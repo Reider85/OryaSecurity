@@ -15,6 +15,10 @@ from app.core.pdp import scan_text, decide
 from app.core.cache import decision_cache
 from app.core.audit import write_event
 from app.core.redactor import redact
+from app.core.metrics import (
+    scanner_requests_total,
+    scanner_request_duration_seconds,
+)
 
 logger = structlog.get_logger()
 
@@ -48,6 +52,13 @@ async def scan_endpoint(
             ],
             cache_hit=True,
         )
+        # Record request metrics for cache hit
+        scanner_request_duration_seconds.observe(latency_ms / 1000)
+        scanner_requests_total.labels(
+            verdict=cached["verdict"],
+            tenant_id=auth_info.tenant_id or body.tenant_id or "unknown",
+        ).inc()
+
         set_scanner_context(
             request,
             verdict=cached["verdict"],
@@ -96,6 +107,13 @@ async def scan_endpoint(
         ],
         cache_hit=False,
     )
+
+    # Record request metrics
+    scanner_request_duration_seconds.observe(latency_ms / 1000)
+    scanner_requests_total.labels(
+        verdict=verdict.action,
+        tenant_id=auth_info.tenant_id or body.tenant_id or "unknown",
+    ).inc()
 
     set_scanner_context(
         request,

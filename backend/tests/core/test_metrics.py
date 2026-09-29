@@ -14,6 +14,11 @@ from app.core.metrics import (
     scanner_cache_misses_total,
     scanner_cache_size,
     scanner_cache_latency_seconds,
+    scanner_requests_total,
+    scanner_request_duration_seconds,
+    scanner_rules_matched_total,
+    scanner_uptime_seconds,
+    python_info,
 )
 from app.main import app
 
@@ -177,3 +182,156 @@ class TestMetricsIntegration:
 def scanner_cache_latency_samples() -> list[float]:
     """Helper to get latency samples from histogram for testing."""
     return list(scanner_cache_latency_seconds._value._buckets)[1:]  # Skip the underflow bucket
+
+
+class TestRequestMetrics:
+    @pytest.mark.asyncio
+    async def test_request_counter_increments_on_scan(self, client: TestClient) -> None:
+        """Test that request counter increments on scan endpoint."""
+        # Clear counter
+        scanner_requests_total.clear()
+        initial_count = scanner_requests_total._value._value
+        
+        # Make a scan request
+        response = client.post(
+            "/scan",
+            json={"prompt": "test prompt", "tenant_id": "test-tenant"},
+            headers={"Authorization": "Bearer test-key"}
+        )
+        assert response.status_code == 200
+        
+        # Check that counter was incremented
+        assert scanner_requests_total._value._value == initial_count + 1
+        
+        # Check labels
+        samples = list(scanner_requests_total.collect())[0].samples
+        request_samples = [s for s in samples if s.name == "scanner_requests_total"]
+        assert len(request_samples) > 0
+        # Should have verdict and tenant_id labels
+        assert "verdict" in request_samples[0].labels
+        assert "tenant_id" in request_samples[0].labels
+
+    @pytest.mark.asyncio
+    async def test_request_duration_histogram_records_values(self, client: TestClient) -> None:
+        """Test that request duration histogram records processing times."""
+        # Clear histogram
+        scanner_request_duration_seconds.clear()
+        
+        # Make a scan request
+        response = client.post(
+            "/scan",
+            json={"prompt": "test prompt"},
+            headers={"Authorization": "Bearer test-key"}
+        )
+        assert response.status_code == 200
+        
+        # Check that histogram has recorded values
+        samples = list(scanner_request_duration_seconds.collect())[0].samples
+        bucket_samples = [s for s in samples if s.name.endswith("_bucket")]
+        assert len(bucket_samples) > 0
+
+    @pytest.mark.asyncio
+    async def test_request_counter_increments_with_verdict_labels(self, client: TestClient) -> None:
+        """Test that request counter increments with verdict labels."""
+        # Clear counter
+        scanner_requests_total.clear()
+        
+        # Test with a prompt that should trigger block (contains PII)
+        response = client.post(
+            "/scan",
+            json={"prompt": "My SSN is 123-45-6789"},
+            headers={"Authorization": "Bearer test-key"}
+        )
+        assert response.status_code == 200
+        
+        # Check that counter was incremented with block verdict
+        samples = list(scanner_requests_total.collect())[0].samples
+        block_samples = [s for s in samples if s.labels.get("verdict") == "block"]
+        assert len(block_samples) > 0
+
+
+class TestRulesMatchedMetrics:
+    @pytest.mark.asyncio
+    async def test_rules_matched_counter_increments(self) -> None:
+        """Test that rules matched counter increments for each matched rule."""
+        # Clear counter
+        scanner_rules_matched_total.clear()
+        initial_count = scanner_rules_matched_total._value._value
+        
+        # Import and use the scan_text function from pdp
+        from app.core.pdp import scan_text
+        
+        # Scan text with multiple matches
+        matches, _ = scan_text("My email is test@example.com and SSN is 123-45-6789")
+        
+        # Check that counter was incremented for each matched rule
+        assert scanner_rules_matched_total._value._value == initial_count + len(matches)
+        
+        # Check that each rule_id has a counter
+        samples = list(scanner_rules_matched_total.collect())[0].samples
+        rule_ids = set(s.labels.get("rule_id") for s in samples if s.labels.get("rule_id"))
+        assert len(rule_ids) > 0
+
+
+class TestUptimeAndPythonInfoMetrics:
+    def test_uptime_metric_exists(self, client: TestClient) -> None:
+        """Test that uptime metric exists and is a gauge."""
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        
+        metrics_text = response.text
+        assert "scanner_uptime_seconds" in metrics_text
+        assert "# HELP scanner_uptime_seconds Application uptime in seconds" in metrics_text
+        assert "# TYPE scanner_uptime_seconds gauge" in metrics_text
+        
+        # Check that uptime value is reasonable (greater than 0)
+        assert "scanner_uptime_seconds" in metrics_text
+        # Should have a value line
+        for line in metrics_text.split('\n'):
+            if line.startswith('scanner_uptime_seconds '):
+                value = float(line.split()[1])
+                assert value > 0
+                break
+
+    def test_python_info_metric_exists(self, client: TestClient) -> None:
+        """Test that python_info metric exists and has correct labels."""
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        
+        metrics_text = response.text
+        assert "python_info" in metrics_text
+        assert "# HELP python_info Python runtime information" in metrics_text
+        assert "# TYPE python_info gauge" in metrics_text
+        
+        # Check that it has the expected labels
+        for line in metrics_text.split('\n'):
+            if line.startswith('python_info{'):
+                # Should have version, implementation, platform labels
+                assert "version=" in line
+                assert "implementation=" in line
+                assert "platform=" in line
+                break
+
+    def test_all_new_metrics_present_in_endpoint(self, client: TestClient) -> None:
+        """Test that all new metrics are present in the /metrics endpoint."""
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        
+        metrics_text = response.text
+        
+        # Check all new metrics are present
+        expected_metrics = [
+            "scanner_requests_total",
+            "scanner_request_duration_seconds",
+            "scanner_rules_matched_total",
+            "scanner_uptime_seconds",
+            "python_info",
+        ]
+        
+        for metric in expected_metrics:
+            assert metric in metrics_text
+        
+        # Check they have proper HELP and TYPE lines
+        for metric in expected_metrics:
+            assert f"# HELP {metric}" in metrics_text
+            assert f"# TYPE {metric}" in metrics_text
