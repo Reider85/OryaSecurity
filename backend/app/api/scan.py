@@ -10,6 +10,7 @@ import structlog
 
 from app.models.scan import ScanRequest, ScanResponse, RuleMatchResponse
 from app.core.auth import verify_api_key, AuthInfo
+from app.core.headers import set_scanner_context
 from app.core.pdp import scan_text, decide
 from app.core.cache import decision_cache
 from app.core.audit import write_event
@@ -47,11 +48,15 @@ async def scan_endpoint(
             ],
             cache_hit=True,
         )
-        json_resp = JSONResponse(content=response.model_dump())
-        json_resp.headers["X-Scanner-Verdict"] = cached["verdict"]
-        json_resp.headers["X-Scanner-Cache"] = "HIT"
-        json_resp.headers["X-Scanner-Request-Id"] = request_id
-        return json_resp
+        set_scanner_context(
+            request,
+            verdict=cached["verdict"],
+            reason=cached["reason"],
+            latency_ms=latency_ms,
+            request_id=request_id,
+            cache="HIT",
+        )
+        return JSONResponse(content=response.model_dump())
 
     matches, prompt_hash = scan_text(body.prompt)
     verdict = decide(matches)
@@ -92,8 +97,13 @@ async def scan_endpoint(
         cache_hit=False,
     )
 
-    json_resp = JSONResponse(content=response.model_dump())
-    json_resp.headers["X-Scanner-Verdict"] = verdict.action
-    json_resp.headers["X-Scanner-Cache"] = "MISS"
-    json_resp.headers["X-Scanner-Request-Id"] = request_id
-    return json_resp
+    set_scanner_context(
+        request,
+        verdict=verdict.action,
+        reason=verdict.reason,
+        latency_ms=latency_ms,
+        request_id=request_id,
+        cache="MISS",
+    )
+
+    return JSONResponse(content=response.model_dump())

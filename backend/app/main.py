@@ -10,6 +10,7 @@ from app.api.health import router as health_router
 from app.api.metrics import router as metrics_router
 from app.api.openai_compat import router as openai_compat_router
 from app.api.admin_apikey import router as admin_apikey_router
+from app.core.headers import ScannerHeadersMiddleware
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
 
@@ -35,6 +36,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Added after CORS so that it sits *inside* the CORS layer: Starlette runs the
+# last-registered middleware first, and CORS needs to be able to decorate error
+# responses produced further down the stack.
+app.add_middleware(ScannerHeadersMiddleware)
 
 
 @app.on_event("startup")
