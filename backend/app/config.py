@@ -27,6 +27,8 @@ class Settings(BaseSettings):
 
     rate_limit_rps: int = 100
 
+    rules_dir: str = "rules"
+
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "SCANNER_"}

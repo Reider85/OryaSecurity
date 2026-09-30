@@ -1,14 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Shield, AlertTriangle, Clock, Database, TrendingUp } from "lucide-react"
+import { Shield, AlertTriangle, Clock, Database } from "lucide-react"
 import { KpiCard } from "@/components/metrics/kpi-card"
 import { RequestsChart } from "@/components/metrics/requests-chart"
 import { TopRulesChart } from "@/components/metrics/top-rules-chart"
 import { RecentActivity } from "@/components/audit/recent-activity"
 import { api } from "@/lib/api"
-import { MetricsSummaryResponse, AuditEventResponse } from "@/lib/api"
 
 // Mock data for charts (in a real app, this would come from the backend)
 const generateMockChartData = () => {
@@ -70,28 +68,28 @@ export default function DashboardPage() {
         <KpiCard
           title="Requests/min"
           value={metricsLoading ? "..." : metricsSummary ? metricsSummary.rps.toFixed(1) : "0.0"}
-          icon={<Shield className="h-4 w-4 text-muted-foreground" />}
+          icon={Shield}
           description="Today"
           trend={metricsSummary ? { value: 5.2, isPositive: true } : undefined}
         />
         <KpiCard
           title="Block Rate"
           value={metricsLoading ? "..." : metricsSummary ? `${metricsSummary.block_rate.toFixed(1)}%` : "0.0%"}
-          icon={<AlertTriangle className="h-4 w-4 text-muted-foreground" />}
+          icon={AlertTriangle}
           description="Blocked requests"
           trend={metricsSummary ? { value: 2.1, isPositive: false } : undefined}
         />
         <KpiCard
           title="Avg Latency"
           value={metricsLoading ? "..." : metricsSummary ? `${metricsSummary.avg_latency.toFixed(1)}ms` : "0ms"}
-          icon={<Clock className="h-4 w-4 text-muted-foreground" />}
+          icon={Clock}
           description="Response time"
           trend={metricsSummary ? { value: 3.5, isPositive: false } : undefined}
         />
         <KpiCard
           title="Cache Hit Rate"
           value={metricsLoading ? "..." : metricsSummary ? `${metricsSummary.cache_hit_rate.toFixed(1)}%` : "0.0%"}
-          icon={<Database className="h-4 w-4 text-muted-foreground" />}
+          icon={Database}
           description="Decision cache"
           trend={metricsSummary ? { value: 8.7, isPositive: true } : undefined}
         />

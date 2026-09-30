@@ -185,11 +185,16 @@ export SCANNER_LOG_LEVEL=DEBUG
 
 ## API Integration
 
-Rules are accessible through the API:
+Rules are accessible through the API (all endpoints require `Authorization: Bearer <api_key>`):
 
-- `GET /api/v1/rules` - List all rules
-- `GET /api/v1/rules/{id}` - Get specific rule
-- `POST /api/v1/rules/test` - Test text against rules
+- `GET /api/v1/rules` - List all rules with their source YAML files
+- `GET /api/v1/rules/{id}` - Get a specific rule
+- `POST /api/v1/rules` - Create a new rule (`{source_file, rule}`; 409 on duplicate id)
+- `POST /api/v1/rules/{id}` - Update an existing rule (persists to YAML and hot-reloads)
+- `POST /api/v1/rules/reload` - Reload all rules from disk without restart
+- `POST /api/v1/rules/test` - Test text against rules (`{text, rule_id?}` → matches with hashed values)
+
+The Web UI Rules Editor (`/dashboard/rules`) uses these endpoints.
 
 ## Version History
 

@@ -1,7 +1,28 @@
 from __future__ import annotations
 
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Gauge, Histogram, REGISTRY
 from prometheus_client.core import CollectorRegistry
+
+
+def _unregister_builtin_python_info() -> None:
+    """Drop prometheus_client's auto-registered python_info collector.
+
+    ProcessCollector/PlatformCollector register ``python_info`` in the default
+    registry; our custom Gauge with the same name would otherwise raise
+    DuplicateTimeseries at import time.
+    """
+    collector_to_names = getattr(REGISTRY, "_collector_to_names", None)
+    if not collector_to_names:
+        return
+    for collector in list(collector_to_names.keys()):
+        if "python_info" in collector_to_names[collector]:
+            try:
+                REGISTRY.unregister(collector)
+            except KeyError:
+                pass
+
+
+_unregister_builtin_python_info()
 
 # Cache metrics
 scanner_cache_hits_total = Counter(

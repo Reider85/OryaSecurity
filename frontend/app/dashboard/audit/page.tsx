@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Card, CardContent } from "@/components/ui/card";
 import { AuditFilters } from "@/components/audit/audit-filters";
 import { AuditTable } from "@/components/audit/audit-table";
 import { api } from "@/lib/api";
@@ -20,14 +19,14 @@ export default function AuditPage() {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Audit events query
-  const { data: auditData, isLoading, refetch } = useQuery({
+  const { data: auditData, isLoading } = useQuery({
     queryKey: ["audit-events", currentPage, filters],
     queryFn: () => api.getAuditEvents({
       page: currentPage,
       limit: 50,
       ...filters,
     }),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 
   const handleApplyFilters = (newFilters: AuditFiltersState) => {

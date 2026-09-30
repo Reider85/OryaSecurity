@@ -65,13 +65,24 @@ export interface Rule {
   severity: string;
   action: string;
   version: string;
+  description?: string | null;
+  enabled: boolean;
+  source_file: string;
 }
 
 export interface RuleMatch {
   rule_id: string;
-  value: string;
-  position: number;
+  rule_name: string;
+  value_hash: string;
+  position: [number, number];
   severity: string;
+  action: string;
+}
+
+export interface ReloadRulesResponse {
+  status: string;
+  total_rules: number;
+  enabled_rules: number;
 }
 
 export interface CacheEntry {
@@ -122,17 +133,20 @@ export const api = {
     if (params?.start_ts) searchParams.set("start_ts", params.start_ts);
     if (params?.end_ts) searchParams.set("end_ts", params.end_ts);
     const query = searchParams.toString();
-    return request<{ items: AuditEventResponse[]; total: number }>(
+    return request<{ items: AuditEventResponse[]; total: number; page: number; per_page: number }>(
       `/api/v1/audit${query ? `?${query}` : ""}`,
       { token }
     );
   },
 
   getMetricsSummary: (token?: string) =>
-    request<MetricsSummary>("/api/v1/metrics/summary", { token }),
+    request<MetricsSummaryResponse>("/api/v1/metrics/summary", { token }),
 
   getRules: (token?: string) =>
-    request<Rule[]>("/api/v1/rules", { token }),
+    request<{ items: Rule[]; total: number; last_loaded_time?: number }>(
+      "/api/v1/rules",
+      { token }
+    ),
 
   getRule: (id: string, token?: string) =>
     request<Rule>(`/api/v1/rules/${id}`, { token }),
@@ -144,10 +158,23 @@ export const api = {
       token,
     }),
 
-  testRule: (text: string, token?: string) =>
+  createRule: (rule: Partial<Rule>, sourceFile: string, token?: string) =>
+    request<Rule>("/api/v1/rules", {
+      method: "POST",
+      body: JSON.stringify({ source_file: sourceFile, rule }),
+      token,
+    }),
+
+  reloadRules: (token?: string) =>
+    request<ReloadRulesResponse>("/api/v1/rules/reload", {
+      method: "POST",
+      token,
+    }),
+
+  testRule: (text: string, ruleId?: string, token?: string) =>
     request<RuleMatch[]>("/api/v1/rules/test", {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(ruleId ? { text, rule_id: ruleId } : { text }),
       token,
     }),
 

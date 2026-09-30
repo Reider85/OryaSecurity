@@ -54,6 +54,9 @@ services:
       SCANNER_POLICY_VERSION: ${POLICY_VERSION:-mvp-1.0}
       SCANNER_LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
       SCANNER_RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-100}
+      SCANNER_RULES_DIR: /app/rules
+    volumes:
+      - ./backend/rules:/app/rules
     ports:
       - "8000:8000"
     healthcheck:

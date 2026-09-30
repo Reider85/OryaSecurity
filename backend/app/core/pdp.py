@@ -9,7 +9,7 @@ from app.core.metrics import scanner_rules_matched_total
 
 
 # Global RuleSet instance (singleton pattern)
-rule_set = RuleSet()
+rule_set = RuleSet(settings.rules_dir)
 
 
 def scan_text(text: str) -> tuple[list[RuleMatch], str]:
