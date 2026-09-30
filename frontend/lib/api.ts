@@ -36,7 +36,7 @@ export interface ScanResult {
   rules_matched: Array<{ rule_id: string; value: string; position: number; severity: string }>;
 }
 
-export interface AuditEvent {
+export interface AuditEventResponse {
   id: number;
   ts: string;
   request_id: string;
@@ -50,7 +50,7 @@ export interface AuditEvent {
   policy_version: string;
 }
 
-export interface MetricsSummary {
+export interface MetricsSummaryResponse {
   rps: number;
   block_rate: number;
   avg_latency: number;
@@ -106,13 +106,23 @@ export const api = {
       token,
     }),
 
-  getAuditEvents: (params?: { limit?: number; page?: number; verdict?: string }, token?: string) => {
+  getAuditEvents: (params?: { 
+    limit?: number; 
+    page?: number; 
+    verdict?: string;
+    prompt_hash?: string;
+    start_ts?: string;
+    end_ts?: string;
+  }, token?: string) => {
     const searchParams = new URLSearchParams();
     if (params?.limit) searchParams.set("limit", String(params.limit));
     if (params?.page) searchParams.set("page", String(params.page));
     if (params?.verdict) searchParams.set("verdict", params.verdict);
+    if (params?.prompt_hash) searchParams.set("prompt_hash", params.prompt_hash);
+    if (params?.start_ts) searchParams.set("start_ts", params.start_ts);
+    if (params?.end_ts) searchParams.set("end_ts", params.end_ts);
     const query = searchParams.toString();
-    return request<{ items: AuditEvent[]; total: number }>(
+    return request<{ items: AuditEventResponse[]; total: number }>(
       `/api/v1/audit${query ? `?${query}` : ""}`,
       { token }
     );

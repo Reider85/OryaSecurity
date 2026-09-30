@@ -165,3 +165,67 @@ async def test_get_audit_events_pagination(client: TestClient, session: AsyncSes
     data = response.json()
     assert data["page"] == 3
     assert len(data["items"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_get_audit_events_prompt_hash_search(client: TestClient, session: AsyncSession):
+    """Test audit events endpoint with prompt_hash LIKE search"""
+    # Create test events with different hash prefixes
+    now = datetime.utcnow()
+    
+    # Events with "abc" prefix
+    for i in range(5):
+        await session.execute(
+            """
+            INSERT INTO audit_events (ts, request_id, prompt_hash, prompt_text_redacted, verdict, reason, rules_matched)
+            VALUES (:ts, :req_id, :hash, :redacted, 'allow', 'Clean', '[]')
+            """,
+            {
+                "ts": now - timedelta(minutes=i),
+                "req_id": str(uuid4()),
+                "hash": f"abc{i:03d}",
+                "redacted": f"prompt_{i}"
+            }
+        )
+    
+    # Events with "xyz" prefix
+    for i in range(3):
+        await session.execute(
+            """
+            INSERT INTO audit_events (ts, request_id, prompt_hash, prompt_text_redacted, verdict, reason, rules_matched)
+            VALUES (:ts, :req_id, :hash, :redacted, 'block', 'PII', '[]')
+            """,
+            {
+                "ts": now - timedelta(minutes=i + 10),
+                "req_id": str(uuid4()),
+                "hash": f"xyz{i:03d}",
+                "redacted": f"prompt_{i}"
+            }
+        )
+    
+    await session.commit()
+    
+    # Test search for "abc" prefix
+    response = client.get("/api/v1/audit?prompt_hash=abc&limit=10", headers=test_auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 5
+    assert len(data["items"]) == 5
+    # All returned events should have "abc" prefix
+    assert all(item["prompt_hash"].startswith("abc") for item in data["items"])
+    
+    # Test search for "xy" prefix (should match "xyz" prefix)
+    response = client.get("/api/v1/audit?prompt_hash=xy&limit=10", headers=test_auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3
+    assert len(data["items"]) == 3
+    # All returned events should have "xyz" prefix
+    assert all(item["prompt_hash"].startswith("xyz") for item in data["items"])
+    
+    # Test search for non-existent prefix
+    response = client.get("/api/v1/audit?prompt_hash=nonexistent&limit=10", headers=test_auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert len(data["items"]) == 0

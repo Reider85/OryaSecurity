@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Iterable
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.config import settings
 from app.db.models import AuditEvent
@@ -139,6 +139,33 @@ def _serialize(event: AuditEvent) -> dict[str, Any]:
     }
 
 
+async def count_events(
+    *,
+    tenant_id: str | None = None,
+    verdict: str | None = None,
+    prompt_hash: str | None = None,
+    start_ts: datetime | None = None,
+    end_ts: datetime | None = None,
+) -> int:
+    """Return total count of matching audit events."""
+    stmt = select(func.count(AuditEvent.id))
+    
+    if tenant_id is not None:
+        stmt = stmt.where(AuditEvent.tenant_id == tenant_id)
+    if verdict is not None:
+        stmt = stmt.where(AuditEvent.verdict == verdict)
+    if prompt_hash is not None:
+        stmt = stmt.where(AuditEvent.prompt_hash == prompt_hash)
+    if start_ts is not None:
+        stmt = stmt.where(AuditEvent.ts >= start_ts)
+    if end_ts is not None:
+        stmt = stmt.where(AuditEvent.ts <= end_ts)
+    
+    async with get_session() as session:
+        result = await session.execute(stmt)
+        return result.scalar()
+
+
 async def query_events(
     *,
     tenant_id: str | None = None,
@@ -157,7 +184,7 @@ async def query_events(
     if verdict is not None:
         stmt = stmt.where(AuditEvent.verdict == verdict)
     if prompt_hash is not None:
-        stmt = stmt.where(AuditEvent.prompt_hash == prompt_hash)
+        stmt = stmt.where(AuditEvent.prompt_hash.like(f"{prompt_hash}%"))
     if start_ts is not None:
         stmt = stmt.where(AuditEvent.ts >= start_ts)
     if end_ts is not None:

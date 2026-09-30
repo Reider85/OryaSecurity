@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_api_key
-from app.core.audit import query_events
+from app.core.audit import query_events, count_events
 from app.db.session import get_session
 from app.models.audit import AuditEventsResponse, AuditQueryRequest
 
@@ -30,8 +30,8 @@ async def get_audit_events(
     # Calculate offset
     offset = (page - 1) * limit
     
-    # Build query parameters
-    query_params = AuditQueryRequest(
+    # Query events
+    events = await query_events(
         tenant_id=tenant_id,
         verdict=verdict,
         prompt_hash=prompt_hash,
@@ -41,33 +41,38 @@ async def get_audit_events(
         offset=offset
     )
     
-    # Query events
-    events = await query_events(session, query_params)
-    total = len(events)
+    # Get total count
+    total = await count_events(
+        tenant_id=tenant_id,
+        verdict=verdict,
+        prompt_hash=prompt_hash,
+        start_ts=start_ts,
+        end_ts=end_ts
+    )
     
     # Convert to response format
     response_events = []
     for event in events:
         rules_matched = []
-        for rule_match in event.rules_matched or []:
+        for rule_match in event.get("rules_matched") or []:
             rules_matched.append({
-                "rule_id": rule_match.rule_id,
-                "position": rule_match.position,
-                "value": rule_match.value
+                "rule_id": rule_match.get("rule_id"),
+                "position": rule_match.get("position"),
+                "value": rule_match.get("value")
             })
         
         response_events.append({
-            "id": event.id,
-            "ts": event.ts,
-            "request_id": str(event.request_id),
-            "tenant_id": event.tenant_id,
-            "prompt_hash": event.prompt_hash,
-            "prompt_text_redacted": event.prompt_text_redacted,
-            "verdict": event.verdict,
-            "reason": event.reason,
+            "id": event.get("id"),
+            "ts": event.get("ts"),
+            "request_id": event.get("request_id"),
+            "tenant_id": event.get("tenant_id"),
+            "prompt_hash": event.get("prompt_hash"),
+            "prompt_text_redacted": event.get("prompt_text_redacted"),
+            "verdict": event.get("verdict"),
+            "reason": event.get("reason"),
             "rules_matched": rules_matched,
-            "policy_version": event.policy_version,
-            "latency_ms": event.latency_ms
+            "policy_version": event.get("policy_version"),
+            "latency_ms": event.get("latency_ms")
         })
     
     return AuditEventsResponse(
