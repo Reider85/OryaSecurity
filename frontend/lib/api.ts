@@ -27,13 +27,22 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   return res.json();
 }
 
+export interface RuleMatch {
+  rule_id: string;
+  rule_name: string;
+  value_hash: string;
+  position: [number, number];
+  severity: string;
+  action: string;
+}
+
 export interface ScanResult {
   verdict: "allow" | "block";
   reason: string;
   latency_ms: number;
   request_id: string;
   cache_hit: boolean;
-  rules_matched: Array<{ rule_id: string; value: string; position: number; severity: string }>;
+  rules_matched: RuleMatch[];
 }
 
 export interface AuditEventResponse {
@@ -70,15 +79,6 @@ export interface Rule {
   source_file: string;
 }
 
-export interface RuleMatch {
-  rule_id: string;
-  rule_name: string;
-  value_hash: string;
-  position: [number, number];
-  severity: string;
-  action: string;
-}
-
 export interface ReloadRulesResponse {
   status: string;
   total_rules: number;
@@ -110,7 +110,7 @@ export interface Config {
 }
 
 export const api = {
-  scan: (prompt: string, token?: string) =>
+  scanPrompt: (prompt: string, token?: string) =>
     request<ScanResult>("/scan", {
       method: "POST",
       body: JSON.stringify({ prompt }),

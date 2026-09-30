@@ -1,44 +1,38 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { ScanForm } from "@/components/test/scan-form";
+import { ScanResultCard } from "@/components/test/scan-result";
+import { api, type ScanResult } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function TestPage() {
-  const [prompt, setPrompt] = useState("");
-  const [result, setResult] = useState<{
-    verdict: string;
-    reason: string;
-    latency_ms: number;
-    request_id: string;
-    cache_hit: boolean;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { token } = useAuth();
+  const authToken = token ?? undefined;
 
-  const handleScan = async () => {
-    if (!prompt.trim()) return;
-    setLoading(true);
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/scan`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("scanner_token") || ""}`,
-          },
-          body: JSON.stringify({ prompt }),
-        }
-      );
-      const data = await res.json();
+  const [prompt, setPrompt] = useState("");
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [submittedPrompt, setSubmittedPrompt] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const scanMutation = useMutation({
+    mutationFn: (text: string) => api.scanPrompt(text, authToken),
+    onSuccess: (data, text) => {
       setResult(data);
-    } catch {
+      setSubmittedPrompt(text);
+      setError(null);
+    },
+    onError: (e) => {
       setResult(null);
-    } finally {
-      setLoading(false);
-    }
+      setError(e instanceof Error ? e.message : String(e));
+    },
+  });
+
+  const handleScan = () => {
+    if (!prompt.trim()) return;
+    scanMutation.mutate(prompt);
   };
 
   return (
@@ -49,55 +43,23 @@ export default function TestPage() {
         <CardHeader>
           <CardTitle>Enter Prompt</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <Textarea
-            placeholder="Type a prompt to test... (e.g., 'My SSN is 123-45-6789')"
-            className="min-h-[160px]"
+        <CardContent>
+          <ScanForm
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                handleScan();
-              }
-            }}
+            onChange={setPrompt}
+            onSubmit={handleScan}
+            loading={scanMutation.isPending}
           />
-          <Button onClick={handleScan} disabled={loading || !prompt.trim()}>
-            {loading ? "Scanning..." : "Scan (Ctrl+Enter)"}
-          </Button>
         </CardContent>
       </Card>
 
-      {result && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Result
-              <Badge variant={result.verdict === "allow" ? "success" : "destructive"}>
-                {result.verdict.toUpperCase()}
-              </Badge>
-              <Badge variant={result.cache_hit ? "default" : "secondary"}>
-                {result.cache_hit ? "HIT" : "MISS"}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Reason: </span>
-                {result.reason}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Latency: </span>
-                {result.latency_ms.toFixed(1)}ms
-              </div>
-              <div>
-                <span className="text-muted-foreground">Request ID: </span>
-                <code className="text-xs">{result.request_id}</code>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {error && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
       )}
+
+      {result && <ScanResultCard result={result} originalPrompt={submittedPrompt} />}
     </div>
   );
 }
