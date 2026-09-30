@@ -1,67 +1,115 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CacheStatsCards } from "@/components/cache/cache-stats";
+import { CacheTable } from "@/components/cache/cache-table";
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function CachePage() {
+  const { token } = useAuth();
+  const queryClient = useQueryClient();
+  const authToken = token ?? undefined;
+
+  const [search, setSearch] = useState("");
+  const [flushOpen, setFlushOpen] = useState(false);
+
+  const statsQuery = useQuery({
+    queryKey: ["cache-stats"],
+    queryFn: () => api.getCacheStats(authToken),
+  });
+
+  const entriesQuery = useQuery({
+    queryKey: ["cache-entries"],
+    queryFn: () => api.getCacheEntries(50, authToken),
+  });
+
+  const invalidateCacheQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["cache-entries"] });
+    queryClient.invalidateQueries({ queryKey: ["cache-stats"] });
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: (hash: string) => api.deleteCacheEntry(hash, authToken),
+    onSuccess: invalidateCacheQueries,
+  });
+
+  const flushMutation = useMutation({
+    mutationFn: () => api.flushCache(authToken),
+    onSuccess: () => {
+      setFlushOpen(false);
+      invalidateCacheQueries();
+    },
+  });
+
+  const entries = useMemo(() => {
+    const all = entriesQuery.data ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((e) => e.prompt_hash.toLowerCase().includes(q));
+  }, [entriesQuery.data, search]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Cache Management</h1>
-        <Button variant="destructive">Flush All</Button>
+        <Button variant="destructive" onClick={() => setFlushOpen(true)}>
+          Flush All
+        </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Total Entries" value="--" />
-        <StatCard title="Hit Rate (24h)" value="--%" />
-        <StatCard title="Memory Usage" value="--" />
-        <StatCard title="TTL Average" value="--" />
-      </div>
+      {(deleteMutation.isError || flushMutation.isError) && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          {deleteMutation.isError
+            ? `Delete failed: ${deleteMutation.error instanceof Error ? deleteMutation.error.message : String(deleteMutation.error)}`
+            : `Flush failed: ${flushMutation.error instanceof Error ? flushMutation.error.message : String(flushMutation.error)}`}
+        </div>
+      )}
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Recent Entries</CardTitle>
-          <Input placeholder="Search by hash..." className="max-w-xs" />
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Prompt Hash</TableHead>
-                <TableHead>Verdict</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead>Expires</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                  No cache entries.
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
+      <CacheStatsCards stats={statsQuery.data} isLoading={statsQuery.isLoading} />
 
-function StatCard({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-xl border bg-card p-6">
-      <p className="text-sm font-medium text-muted-foreground">{title}</p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
+      <CacheTable
+        entries={entries}
+        search={search}
+        onSearchChange={setSearch}
+        onDelete={(hash) => deleteMutation.mutate(hash)}
+        deletingHash={deleteMutation.isPending ? deleteMutation.variables : null}
+        isLoading={entriesQuery.isLoading}
+      />
+
+      <Dialog open={flushOpen} onOpenChange={setFlushOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Flush all cache entries?</DialogTitle>
+            <DialogDescription>
+              This will delete every cached decision. Subsequent scans will re-run
+              through the full pipeline until new entries are written.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFlushOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={flushMutation.isPending}
+              onClick={() => flushMutation.mutate()}
+            >
+              {flushMutation.isPending ? "Flushing..." : "Flush All"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
