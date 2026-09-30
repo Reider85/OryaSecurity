@@ -6,7 +6,7 @@ from sqlalchemy import func, desc
 
 from app.core.auth import verify_api_key
 from app.core.metrics import metrics_registry
-from app.db.session import get_session
+from app.db.session import get_session_dep
 from app.models.metrics import MetricsSummaryResponse
 
 router = APIRouter(prefix="/api/v1", tags=["metrics"])
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1", tags=["metrics"])
 
 @router.get("/metrics/summary", response_model=MetricsSummaryResponse)
 async def get_metrics_summary(
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session_dep),
     api_key: str = Depends(verify_api_key)
 ) -> MetricsSummaryResponse:
     """

@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     api_keys: list[str] = ["dev-key-12345"]
     default_tenant_id: str = "default"
 
+    jwt_secret: str = "dev-secret-change-me-0123456789abcdef0123456789abcdef"
+    jwt_ttl_seconds: int = 86400
+    jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "llm-security-scanner"
+
     cache_ttl_seconds: int = 300
     cache_max_size: int = 10000
 

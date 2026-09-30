@@ -23,7 +23,7 @@ async def ensure_bootstrap_api_keys() -> int:
     if not settings.api_keys:
         return inserted_count
     
-    async with await get_db_connection() as conn:
+    async with get_db_connection() as conn:
         for api_key in settings.api_keys:
             if not api_key:
                 continue

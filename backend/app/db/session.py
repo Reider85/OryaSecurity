@@ -73,7 +73,7 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 @asynccontextmanager
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """Yield an async session, committing on success and rolling back on error."""
+    """Yield an AsyncSession, committing on success and rolling back on error."""
     session = get_sessionmaker()()
     try:
         yield session
@@ -83,6 +83,16 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         raise
     finally:
         await session.close()
+
+
+async def get_session_dep() -> AsyncIterator[AsyncSession]:
+    """FastAPI yield-dependency wrapping get_session().
+
+    FastAPI requires plain async generators for Depends(); @asynccontextmanager
+    objects are for ``async with`` usage inside application code.
+    """
+    async with get_session() as session:
+        yield session
 
 
 async def dispose_engine() -> None:
@@ -121,13 +131,23 @@ async def close_db() -> None:
     await dispose_engine()
 
 
-async def get_db_connection() -> asyncpg.Connection:
-    """Get a database connection from the pool."""
+@asynccontextmanager
+async def get_db_connection() -> AsyncIterator[asyncpg.Connection]:
+    """Yield a database connection from the pool.
+
+    Usage:
+        async with get_db_connection() as conn:
+            await conn.fetchrow(...)
+    """
     pool = await get_pool()
-    return await pool.acquire()
+    async with pool.acquire() as conn:
+        yield conn
 
 
 async def release_db_connection(conn: asyncpg.Connection) -> None:
-    """Release a database connection back to the pool."""
+    """Release a database connection back to the pool.
+
+    Kept for backward compatibility; prefer ``async with get_db_connection()``.
+    """
     pool = await get_pool()
     await pool.release(conn)

@@ -14,7 +14,13 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  // /api/auth/* are Next.js Route Handlers on this origin (cookie set/read
+  // for UI auth). All other endpoints go to the scanner backend.
+  const url = endpoint.startsWith("/api/auth/")
+    ? endpoint
+    : `${API_BASE}${endpoint}`;
+
+  const res = await fetch(url, {
     ...fetchOptions,
     headers,
   });
@@ -210,8 +216,16 @@ export const api = {
     }),
 
   login: (apiKey: string) =>
-    request<{ token: string }>("/api/v1/auth/login", {
+    request<{ token: string; token_type?: string; expires_in?: number; tenant_id?: string }>(
+      "/api/auth/login",
+      {
+        method: "POST",
+        body: JSON.stringify({ api_key: apiKey }),
+      }
+    ),
+
+  logout: () =>
+    request<{ ok: boolean }>("/api/auth/logout", {
       method: "POST",
-      body: JSON.stringify({ api_key: apiKey }),
     }),
 };

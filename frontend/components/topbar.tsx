@@ -4,13 +4,19 @@ import { LogOut, User } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
+import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export function Topbar() {
   const { logout } = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // Cookie clearing is best-effort; always clear local state.
+    }
     logout();
     router.push("/login");
   };

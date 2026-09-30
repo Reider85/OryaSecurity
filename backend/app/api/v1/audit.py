@@ -1,11 +1,9 @@
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_api_key
 from app.core.audit import query_events, count_events
-from app.db.session import get_session
 from app.models.audit import AuditEventsResponse, AuditQueryRequest
 
 router = APIRouter(prefix="/api/v1", tags=["audit"])
@@ -15,12 +13,11 @@ router = APIRouter(prefix="/api/v1", tags=["audit"])
 async def get_audit_events(
     limit: int = Query(10, ge=1, le=100, description="Maximum number of events to return"),
     page: int = Query(1, ge=1, description="Page number"),
-    verdict: Optional[str] = Query(None, regex="^(allow|block)$", description="Filter by verdict"),
+    verdict: Optional[str] = Query(None, pattern="^(allow|block)$", description="Filter by verdict"),
     tenant_id: Optional[str] = Query(None, description="Filter by tenant ID"),
     prompt_hash: Optional[str] = Query(None, description="Filter by prompt hash"),
     start_ts: Optional[datetime] = Query(None, description="Filter by start timestamp"),
     end_ts: Optional[datetime] = Query(None, description="Filter by end timestamp"),
-    session: AsyncSession = Depends(get_session),
     api_key: str = Depends(verify_api_key)
 ) -> AuditEventsResponse:
     """
