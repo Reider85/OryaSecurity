@@ -10,6 +10,7 @@ from app.api.health import router as health_router
 from app.api.metrics import router as metrics_router
 from app.api.openai_compat import router as openai_compat_router
 from app.api.admin_apikey import router as admin_apikey_router
+from app.api.v1 import metrics_router as v1_metrics_router, audit_router as v1_audit_router
 from app.core.headers import ScannerHeadersMiddleware
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
@@ -76,3 +77,5 @@ app.include_router(metrics_router)
 app.include_router(scan_router)
 app.include_router(openai_compat_router)
 app.include_router(admin_apikey_router)
+app.include_router(v1_metrics_router)
+app.include_router(v1_audit_router)
