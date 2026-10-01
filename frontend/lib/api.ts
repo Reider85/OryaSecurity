@@ -74,6 +74,47 @@ export interface AuditEventResponse {
   policy_version: string;
 }
 
+export interface RuleMatchDetail {
+  rule_id: string;
+  rule_name: string;
+  severity: string;
+  action: string;
+  position?: [number, number];
+  matched_value?: string;
+}
+
+export interface LatencyBreakdown {
+  fast_path_ms: number;
+  slow_path_ms: number;
+  pdp_ms: number;
+  audit_ms: number;
+  total_ms: number;
+}
+
+export interface DecisionDetail {
+  request_id: string;
+  tenant_id?: string;
+  prompt_hash: string;
+  prompt_text_redacted: string;
+  verdict: string;
+  reason: string;
+  rules_matched: RuleMatchDetail[];
+  policy_version: string;
+  cache_status: "HIT" | "MISS";
+  latency_breakdown: LatencyBreakdown;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DecisionListResponse {
+  items: DecisionDetail[];
+  total: number;
+  page: number;
+  per_page: number;
+  has_next: boolean;
+  has_prev: boolean;
+}
+
 export interface MetricsSummaryResponse {
   rps: number;
   block_rate: number;
@@ -153,6 +194,33 @@ export const api = {
       { token }
     );
   },
+
+  getDecisions: (params?: { 
+    limit?: number; 
+    page?: number; 
+    verdict?: string;
+    tenant_id?: string;
+    rule_id?: string;
+    start_date?: string;
+    end_date?: string;
+  }, token?: string) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    if (params?.page) searchParams.set("page", String(params.page));
+    if (params?.verdict) searchParams.set("verdict", params.verdict);
+    if (params?.tenant_id) searchParams.set("tenant_id", params.tenant_id);
+    if (params?.rule_id) searchParams.set("rule_id", params.rule_id);
+    if (params?.start_date) searchParams.set("start_date", params.start_date);
+    if (params?.end_date) searchParams.set("end_date", params.end_date);
+    const query = searchParams.toString();
+    return request<DecisionListResponse>(
+      `/api/v1/decisions${query ? `?${query}` : ""}`,
+      { token }
+    );
+  },
+
+  getDecisionDetail: (requestId: string, token?: string) =>
+    request<DecisionDetail>(`/api/v1/decisions/${requestId}`, { token }),
 
   getMetricsSummary: (token?: string) =>
     request<MetricsSummaryResponse>("/api/v1/metrics/summary", { token }),

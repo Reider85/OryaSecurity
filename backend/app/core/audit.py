@@ -195,3 +195,13 @@ async def query_events(
     async with get_session() as session:
         result = await session.execute(stmt)
         return [_serialize(row) for row in result.scalars().all()]
+
+
+async def query_event_by_request_id(request_id: str) -> dict[str, Any] | None:
+    """Query a single audit event by request ID."""
+    stmt = select(AuditEvent).where(AuditEvent.request_id == request_id)
+
+    async with get_session() as session:
+        result = await session.execute(stmt)
+        event = result.scalar_one_or_none()
+        return _serialize(event) if event else None

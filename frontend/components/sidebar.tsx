@@ -11,6 +11,7 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { useState } from "react";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/audit", label: "Audit Log", icon: FileText },
+  { href: "/dashboard/decisions", label: "Decisions", icon: Search },
   { href: "/dashboard/rules", label: "Rules", icon: Shield },
   { href: "/dashboard/test", label: "Test", icon: FlaskConical },
   { href: "/dashboard/cache", label: "Cache", icon: Database },

@@ -16,6 +16,7 @@ from app.api.v1 import (
     rules_router as v1_rules_router,
     cache_router as v1_cache_router,
     auth_router as v1_auth_router,
+    decisions_router as v1_decisions_router,
 )
 from app.core.headers import ScannerHeadersMiddleware
 from app.db.session import init_db, close_db
@@ -88,3 +89,4 @@ app.include_router(v1_audit_router)
 app.include_router(v1_rules_router)
 app.include_router(v1_cache_router)
 app.include_router(v1_auth_router)
+app.include_router(v1_decisions_router)
