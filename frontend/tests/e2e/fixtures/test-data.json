@@ -1,0 +1,36 @@
+{
+  "testUser": {
+    "apiKey": "test-api-key-12345",
+    "invalidApiKey": "invalid-key"
+  },
+  "testPrompts": {
+    "clean": "What is the weather today?",
+    "piiSsn": "My SSN is 123-45-6789",
+    "piiEmail": "Contact me at john.doe@example.com",
+    "piiAwsKey": "My AWS key is AKIAIOSFODNN7EXAMPLE",
+    "piiPassport": "My passport number is 123456789"
+  },
+  "expectedResults": {
+    "blockReasons": {
+      "ssn": "PII: US SSN",
+      "email": "PII: Email",
+      "aws": "Secrets: AWS Access Key",
+      "passport": "PII: RU Passport"
+    }
+  },
+  "configValues": {
+    "cacheTtl": "10",
+    "maxPromptLength": "10000",
+    "rateLimit": "100"
+  },
+  "ruleExamples": {
+    "piiSsn": {
+      "id": "pii_ssn_us",
+      "name": "US Social Security Number",
+      "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+      "severity": "high",
+      "action": "block",
+      "version": "1.0.0"
+    }
+  }
+}
