@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AuditQueryRequest(BaseModel):
@@ -15,9 +15,13 @@ class AuditQueryRequest(BaseModel):
 
 
 class RuleMatchResponse(BaseModel):
-    """Response model for rule matches in audit events"""
+    """Response model for rule matches in audit events.
+
+    ``position`` is a ``[start, end]`` pair: ``core.audit._normalize_rules``
+    persists exactly that shape into the JSONB column.
+    """
     rule_id: str
-    position: int
+    position: list[int] = Field(default_factory=list)
     value: Optional[str] = None
 
 
@@ -28,7 +32,7 @@ class AuditEventResponse(BaseModel):
     request_id: str
     tenant_id: Optional[str] = None
     prompt_hash: str
-    prompt_text_redacted: str
+    prompt_text_redacted: Optional[str] = None
     verdict: str
     reason: Optional[str] = None
     rules_matched: list[RuleMatchResponse]

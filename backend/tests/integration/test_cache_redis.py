@@ -6,14 +6,13 @@ import time
 from unittest.mock import AsyncMock, patch
 
 from app.core.cache import DecisionCache
-from app.db.redis_client import get_redis_connection
 
 
 class TestRedisCacheIntegration:
-    """Integration tests for Redis-backed decision cache."""
+    """Integration tests for Redis-backed decision cache using fakeredis fixtures."""
 
     @pytest.mark.asyncio
-    async def test_cache_hit_returns_cached_verdict(self) -> None:
+    async def test_cache_hit_returns_cached_verdict(self, redis_client) -> None:
         """Test that cache hit returns cached verdict."""
         cache = DecisionCache(ttl_seconds=60)
         
@@ -30,7 +29,7 @@ class TestRedisCacheIntegration:
         assert entry["rules_matched"] == []
 
     @pytest.mark.asyncio
-    async def test_cache_miss_returns_none(self) -> None:
+    async def test_cache_miss_returns_none(self, redis_client) -> None:
         """Test that cache miss returns None."""
         cache = DecisionCache()
         
@@ -40,7 +39,7 @@ class TestRedisCacheIntegration:
         assert entry is None
 
     @pytest.mark.asyncio
-    async def test_cache_ttl_expiry(self) -> None:
+    async def test_cache_ttl_expiry(self, redis_client) -> None:
         """Test that cache entries expire after TTL."""
         cache = DecisionCache(ttl_seconds=1)
         
@@ -59,7 +58,7 @@ class TestRedisCacheIntegration:
         assert hit is False
 
     @pytest.mark.asyncio
-    async def test_cache_overwrite(self) -> None:
+    async def test_cache_overwrite(self, redis_client) -> None:
         """Test that setting the same prompt overwrites the previous value."""
         cache = DecisionCache(ttl_seconds=60)
         
@@ -77,7 +76,7 @@ class TestRedisCacheIntegration:
         assert entry["rules_matched"] == [{"rule_id": "test"}]
 
     @pytest.mark.asyncio
-    async def test_cache_flush(self) -> None:
+    async def test_cache_flush(self, redis_client) -> None:
         """Test that flush clears all entries."""
         cache = DecisionCache(ttl_seconds=60)
         
@@ -101,7 +100,7 @@ class TestRedisCacheIntegration:
         assert hit2 is False
 
     @pytest.mark.asyncio
-    async def test_cache_fallback_on_redis_down(self) -> None:
+    async def test_cache_fallback_on_redis_down(self, redis_client) -> None:
         """Test that cache gracefully degrades when Redis is unavailable."""
         cache = DecisionCache()
         
@@ -126,7 +125,7 @@ class TestRedisCacheIntegration:
             await cache.flush()
 
     @pytest.mark.asyncio
-    async def test_cache_key_consistency(self) -> None:
+    async def test_cache_key_consistency(self, redis_client) -> None:
         """Test that the same prompt always generates the same key."""
         cache = DecisionCache()
         
@@ -144,7 +143,7 @@ class TestRedisCacheIntegration:
         assert all(c in "0123456789abcdef" for c in key1)
 
     @pytest.mark.asyncio
-    async def test_cache_json_serialization_complex_data(self) -> None:
+    async def test_cache_json_serialization_complex_data(self, redis_client) -> None:
         """Test that complex rule data is properly serialized/deserialized."""
         cache = DecisionCache(ttl_seconds=60)
         
@@ -172,7 +171,7 @@ class TestRedisCacheIntegration:
         assert entry["reason"] == "Multiple matches"
 
     @pytest.mark.asyncio
-    async def test_cache_concurrent_access(self) -> None:
+    async def test_cache_concurrent_access(self, redis_client) -> None:
         """Test that cache handles concurrent access correctly."""
         cache = DecisionCache(ttl_seconds=60)
         
@@ -204,7 +203,7 @@ class TestRedisCacheIntegration:
         assert final_entry["verdict"] in ["val_0", "val_1", "val_2"]
 
     @pytest.mark.asyncio
-    async def test_cache_large_prompt_handling(self) -> None:
+    async def test_cache_large_prompt_handling(self, redis_client) -> None:
         """Test that cache handles large prompts correctly."""
         cache = DecisionCache(ttl_seconds=60)
         

@@ -155,7 +155,9 @@ async def count_events(
     if verdict is not None:
         stmt = stmt.where(AuditEvent.verdict == verdict)
     if prompt_hash is not None:
-        stmt = stmt.where(AuditEvent.prompt_hash == prompt_hash)
+        # Prefix match, matching query_events(), so `total` agrees with
+        # len(items) for partial hash searches from the UI.
+        stmt = stmt.where(AuditEvent.prompt_hash.like(f"{prompt_hash}%"))
     if start_ts is not None:
         stmt = stmt.where(AuditEvent.ts >= start_ts)
     if end_ts is not None:

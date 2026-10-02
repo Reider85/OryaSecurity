@@ -8,38 +8,6 @@ import { TopRulesChart } from "@/components/metrics/top-rules-chart"
 import { RecentActivity } from "@/components/audit/recent-activity"
 import { api } from "@/lib/api"
 
-// Mock data for charts (in a real app, this would come from the backend)
-const generateMockChartData = () => {
-  const data = []
-  const now = new Date()
-  
-  for (let i = 23; i >= 0; i--) {
-    const timestamp = new Date(now.getTime() - i * 60 * 60 * 1000)
-    const requests = Math.floor(Math.random() * 100) + 20
-    const blocks = Math.floor(requests * (Math.random() * 0.3 + 0.1))
-    const blockRate = Math.round((blocks / requests) * 100)
-    
-    data.push({
-      timestamp: timestamp.toISOString(),
-      requests,
-      blocks,
-      blockRate
-    })
-  }
-  
-  return data
-}
-
-const generateMockRulesData = () => {
-  return [
-    { rule_id: "pii_ssn_us", count: 45, severity: "high" as const },
-    { rule_id: "aws_key", count: 32, severity: "critical" as const },
-    { rule_id: "pii_email", count: 28, severity: "medium" as const },
-    { rule_id: "jwt_token", count: 15, severity: "high" as const },
-    { rule_id: "pii_passport_ru", count: 8, severity: "medium" as const }
-  ]
-}
-
 export default function DashboardPage() {
   // Metrics summary query (5s refresh)
   const { data: metricsSummary, isLoading: metricsLoading } = useQuery({
@@ -55,9 +23,38 @@ export default function DashboardPage() {
     refetchInterval: 10000, // Refresh every 10 seconds
   })
 
-  // Mock chart data
-  const requestsChartData = generateMockChartData()
-  const topRulesData = generateMockRulesData()
+  // Requests chart data (24h history, 1h buckets)
+  const { data: requestsChartData, isLoading: requestsLoading } = useQuery({
+    queryKey: ["requests-chart"],
+    queryFn: () => api.getRequestChartData({ hours: 24 }),
+    refetchInterval: 300000, // Refresh every 5 minutes
+  })
+
+  // Rules chart data (top rules matched)
+  const { data: rulesChartData, isLoading: rulesLoading } = useQuery({
+    queryKey: ["rules-chart"],
+    queryFn: () => api.getRulesChartData({ days: 7 }),
+    refetchInterval: 300000, // Refresh every 5 minutes
+  })
+
+  // Real-time chart data (60m history, 1m buckets)
+  const { data: realtimeData } = useQuery({
+    queryKey: ["realtime-chart"],
+    queryFn: () => api.getRealtimeChartData({ minutes: 60 }),
+    refetchInterval: 30000, // Refresh every 30 seconds
+  })
+
+  // Use real-time data if available, otherwise use 24h data
+  const chartData = realtimeData || requestsChartData || []
+
+  // Transform rules data for chart
+  const topRulesData = rulesChartData?.slice(0, 5) || [
+    { rule_id: "pii_ssn_us", rule_name: "US SSN", count: 0, severity: "high" as const },
+    { rule_id: "secret_aws_key", rule_name: "AWS Key", count: 0, severity: "critical" as const },
+    { rule_id: "pii_email", rule_name: "Email", count: 0, severity: "medium" as const },
+    { rule_id: "secret_jwt", rule_name: "JWT Token", count: 0, severity: "high" as const },
+    { rule_id: "pii_passport_ru", rule_name: "RU Passport", count: 0, severity: "medium" as const }
+  ]
 
   return (
     <div className="space-y-6">
@@ -97,12 +94,19 @@ export default function DashboardPage() {
 
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <RequestsChart data={requestsChartData} />
-        <TopRulesChart data={topRulesData} />
+        <RequestsChart 
+          data={chartData} 
+          isLoading={requestsLoading}
+          title={realtimeData ? "Real-time (last 60min)" : "Last 24 Hours"}
+        />
+        <TopRulesChart 
+          data={topRulesData} 
+          isLoading={rulesLoading}
+        />
       </div>
 
       {/* Recent Activity */}
-      <RecentActivity events={auditEvents?.items || []} />
+      <RecentActivity events={auditEvents?.items || []} isLoading={auditLoading} />
     </div>
   )
 }

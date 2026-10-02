@@ -49,32 +49,40 @@ async def test_client(db_pool):
 async def test_api_key(db_pool):
     """Create a test API key in the database."""
     import secrets
-    import bcrypt
-    
+
+    from app.core.auth import _fingerprint_api_key, _hash_api_key
+
     # Generate and hash test key
     api_key = secrets.token_urlsafe(32)
-    key_hash = bcrypt.hashpw(api_key.encode(), bcrypt.gensalt()).decode()
-    
+    key_hash = _hash_api_key(api_key)
+    # authenticate_api_key() looks rows up by fingerprint (sha256 of the raw
+    # key), so the column must be populated or every request 401s.
+    fingerprint = _fingerprint_api_key(api_key)
+
     # Insert into database
     async with get_db_connection() as conn:
         await conn.execute(
+            "DELETE FROM api_keys WHERE key_fingerprint = $1",
+            fingerprint,
+        )
+        await conn.execute(
             """
-            INSERT INTO api_keys (key_hash, tenant_id, created_at, active)
-            VALUES ($1, $2, NOW(), TRUE)
+            INSERT INTO api_keys (key_hash, key_fingerprint, tenant_id, created_at, active)
+            VALUES ($1, $2, $3, NOW(), TRUE)
             """,
             key_hash,
+            fingerprint,
             "test-tenant",
         )
-    
+
     yield api_key
-    
+
     # Cleanup
     async with get_db_connection() as conn:
         await conn.execute(
-            "DELETE FROM api_keys WHERE key_hash = $1",
-            key_hash,
+            "DELETE FROM api_keys WHERE key_fingerprint = $1",
+            fingerprint,
         )
-
 
 @pytest.fixture
 async def test_auth_headers(test_api_key: str):

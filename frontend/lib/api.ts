@@ -222,35 +222,26 @@ export const api = {
   getDecisionDetail: (requestId: string, token?: string) =>
     request<DecisionDetail>(`/api/v1/decisions/${requestId}`, { token }),
 
-  getDecisions: (params?: { 
-    limit?: number; 
-    page?: number; 
-    verdict?: string;
-    tenant_id?: string;
-    rule_id?: string;
-    start_date?: string;
-    end_date?: string;
-  }, token?: string) => {
-    const searchParams = new URLSearchParams();
-    if (params?.limit) searchParams.set("limit", String(params.limit));
-    if (params?.page) searchParams.set("page", String(params.page));
-    if (params?.verdict) searchParams.set("verdict", params.verdict);
-    if (params?.tenant_id) searchParams.set("tenant_id", params.tenant_id);
-    if (params?.rule_id) searchParams.set("rule_id", params.rule_id);
-    if (params?.start_date) searchParams.set("start_date", params.start_date);
-    if (params?.end_date) searchParams.set("end_date", params.end_date);
-    const query = searchParams.toString();
-    return request<DecisionListResponse>(
-      `/api/v1/decisions${query ? `?${query}` : ""}`,
-      { token }
-    );
-  },
-
-  getDecisionDetail: (requestId: string, token?: string) =>
-    request<DecisionDetail>(`/api/v1/decisions/${requestId}`, { token }),
-
   getMetricsSummary: (token?: string) =>
     request<MetricsSummaryResponse>("/api/v1/metrics/summary", { token }),
+
+  getRequestChartData: (params?: { hours?: number }, token?: string) =>
+    request<any[]>("/api/v1/charts/requests", {
+      params: { hours: params?.hours || 24 },
+      token
+    }),
+
+  getRulesChartData: (params?: { days?: number }, token?: string) =>
+    request<any[]>("/api/v1/charts/rules", {
+      params: { days: params?.days || 7 },
+      token
+    }),
+
+  getRealtimeChartData: (params?: { minutes?: number }, token?: string) =>
+    request<any[]>("/api/v1/charts/realtime", {
+      params: { minutes: params?.minutes || 60 },
+      token
+    }),
 
   getRules: (token?: string) =>
     request<{ items: Rule[]; total: number; last_loaded_time?: number }>(

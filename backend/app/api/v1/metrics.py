@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, desc
 
 from app.core.auth import verify_api_key
 from app.core.metrics import metrics_registry
@@ -36,7 +36,8 @@ async def get_metrics_summary(
     GROUP BY verdict
     """
     
-    result = await session.execute(query, {"start_of_day": start_of_day})
+    # SQLAlchemy 2.x requires explicit text() wrapping for raw SQL.
+    result = await session.execute(text(query), {"start_of_day": start_of_day})
     verdict_stats = {row.verdict: {"count": row.count, "avg_latency": row.avg_latency} for row in result}
     
     total_requests = sum(stats["count"] for stats in verdict_stats.values())

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from prometheus_client import Counter, Gauge, Histogram, REGISTRY
-from prometheus_client.core import CollectorRegistry
+
 
 
 def _unregister_builtin_python_info() -> None:
@@ -78,8 +78,11 @@ python_info = Gauge(
     labelnames=["version", "implementation", "platform"],
 )
 
-# Registry for metrics (can be used for testing)
-metrics_registry = CollectorRegistry()
+# Alias for the default registry, where all collectors above are registered.
+# Kept as a module attribute because /api/v1/metrics/summary reads sample values
+# from it. It must be REGISTRY, not a separate empty CollectorRegistry, or every
+# lookup would return None and the dashboard would show zeros forever.
+metrics_registry = REGISTRY
 
 # Initialize metrics with zero values
 def init_metrics() -> None:

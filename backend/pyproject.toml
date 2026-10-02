@@ -33,12 +33,23 @@ dev = [
     "pytest-cov>=6.0.0",
     "httpx>=0.28.0",
     "fakeredis[lua]>=2.25.0",
+    "testcontainers[postgres,redis]>=4.9.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=90"
+# Session-scoped async fixtures (the Postgres pool/engine live in
+# app.db.session module globals) must be created on the same event loop the
+# tests run on, otherwise asyncpg fails with "Event loop is closed".
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "integration: end-to-end tests running against real dependencies",
+    "db: requires a reachable PostgreSQL",
+    "redis: requires a reachable Redis (or fakeredis fallback)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

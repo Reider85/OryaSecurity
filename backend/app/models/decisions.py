@@ -8,7 +8,7 @@ class RuleMatchPosition(BaseModel):
     """Position information for rule matches in text"""
     start: int
     end: int
-    matched_text: str
+    matched_text: str = ""
 
 
 class RuleMatchDetail(BaseModel):
@@ -35,9 +35,11 @@ class DecisionDetail(BaseModel):
     request_id: UUID
     tenant_id: Optional[str]
     prompt_hash: str
-    prompt_text_redacted: str
+    # Optional: a row can be written without a redacted prompt (e.g. by the
+    # proxy path), and core.audit._serialize passes None straight through.
+    prompt_text_redacted: Optional[str] = None
     verdict: str = Field(description="allow|block")
-    reason: str
+    reason: Optional[str] = None
     rules_matched: List[RuleMatchDetail]
     policy_version: str
     cache_status: str = Field(description="HIT|MISS")
