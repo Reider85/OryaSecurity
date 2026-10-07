@@ -25,6 +25,7 @@ COPY app/ app/
 COPY rules/ rules/
 COPY alembic.ini .
 COPY alembic/ alembic/
+COPY entrypoint.sh entrypoint.sh
 
 # Runtime stage
 FROM python:3.12-slim as runtime
@@ -49,7 +50,7 @@ COPY --from=builder /app/alembic/ alembic/
 COPY --from=builder /app/entrypoint.sh entrypoint.sh
 
 # Set permissions
-RUN chown -R scanner:scanner /app
+RUN chmod +x entrypoint.sh && chown -R scanner:scanner /app
 USER scanner
 
 # Expose port
