@@ -20,6 +20,7 @@ REDIS_PASSWORD=${REDIS_PASSWORD:-$(openssl rand -base64 32)}
 LLM_PROVIDER_URL=${LLM_PROVIDER_URL:-https://api.openai.com/v1/chat/completions}
 LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
 LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-30}
+LLM_API_KEY=${LLM_API_KEY:-}
 
 # Security Configuration
 API_KEY_DEFAULT=${API_KEY_DEFAULT:-$(openssl rand -base64 32)}
@@ -432,6 +433,11 @@ spec:
           value: "https://api.openai.com/v1/chat/completions"
         - name: SCANNER_API_KEYS
           value: "prod-api-key-12345"
+        - name: SCANNER_LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: scanner-secrets
+              key: llm-api-key
         - name: SCANNER_JWT_SECRET
           valueFrom:
             secretKeyRef:

@@ -134,6 +134,7 @@ REDIS_URL=redis://localhost:6379/0
 
 # LLM Provider
 LLM_PROVIDER_URL=https://api.openai.com/v1/chat/completions
+LLM_API_KEY=your_llm_api_key_here
 
 # Security
 API_KEY_DEFAULT=your_api_key_here

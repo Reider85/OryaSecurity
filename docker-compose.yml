@@ -43,6 +43,7 @@ services:
       SCANNER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-scanner}:${POSTGRES_PASSWORD:-scanner}@postgres:5432/${POSTGRES_DB:-scanner}
       SCANNER_REDIS_URL: redis://redis:6379/0
       SCANNER_LLM_PROVIDER_URL: ${LLM_PROVIDER_URL:-http://host.docker.internal:8001}
+      SCANNER_LLM_API_KEY: ${LLM_API_KEY:-}
       SCANNER_API_KEYS: '["${API_KEY_DEFAULT:-dev-key-12345}"]'
       SCANNER_JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-0123456789abcdef0123456789abcdef}
       SCANNER_JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-86400}

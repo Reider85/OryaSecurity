@@ -189,7 +189,9 @@ async def _forward_to_llm(
                 url,
                 json=payload,
                 timeout=settings.llm_timeout_seconds,
-                headers={"X-Request-Id": request_id},
+                headers={"X-Request-Id": request_id}
+                if not settings.llm_api_key
+                else {"X-Request-Id": request_id, "Authorization": f"Bearer {settings.llm_api_key}"},
             )
     except httpx.TimeoutException:
         logger.error("proxy_llm_timeout", request_id=request_id, url=url)
