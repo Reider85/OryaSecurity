@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
 
+from app.config import settings
 from app.core.proxy import (
     LLMProxyError,
     _extract_prompt_text,
@@ -212,7 +213,7 @@ class TestBuildForwardPayload:
 
         request = _make_request("Hello")
         payload = _build_forward_payload(request)
-        assert payload["model"] == "gpt-3.5-turbo"
+        assert payload["model"] == "gpt-3.5-turbo"  # default from config
         assert len(payload["messages"]) == 1
         assert payload["messages"][0]["role"] == "user"
 
@@ -245,6 +246,37 @@ class TestBuildForwardPayload:
         assert "temperature" not in payload
         assert "max_tokens" not in payload
 
+    def test_config_model_overrides_request_model(self):
+        from app.core.proxy import _build_forward_payload
+
+        # Mock settings.llm_model to override default
+        original_llm_model = settings.llm_model
+        settings.llm_model = "GLM-4.5-Flash"
+        
+        try:
+            request = _make_request("Hello")
+            request.model = "gpt-4"  # Different from config
+            payload = _build_forward_payload(request)
+            assert payload["model"] == "GLM-4.5-Flash"  # Should use config model
+        finally:
+            settings.llm_model = original_llm_model
+
+    def test_config_model_none_falls_back_to_request(self):
+        from app.config import settings
+        from app.core.proxy import _build_forward_payload
+
+        # Mock settings.llm_model to None
+        original_llm_model = settings.llm_model
+        settings.llm_model = None
+        
+        try:
+            request = _make_request("Hello")
+            request.model = "gpt-4"
+            payload = _build_forward_payload(request)
+            assert payload["model"] == "gpt-4"  # Should use request model when config is None
+        finally:
+            settings.llm_model = original_llm_model
+
 
 class TestForwardToLLM:
     @pytest.mark.asyncio
@@ -263,6 +295,62 @@ class TestForwardToLLM:
                 await _forward_to_llm(request, "req-123")
             assert exc_info.value.status_code == 502
             assert "timeout" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_url_construction_default_path(self, mock_forward):
+        from app.core.proxy import _forward_to_llm
+        from app.config import settings
+
+        original_llm_provider_url = settings.llm_provider_url
+        original_llm_api_path = settings.llm_api_path
+        
+        try:
+            settings.llm_provider_url = "https://api.example.com"
+            settings.llm_api_path = "/v1/chat/completions"
+            
+            request = _make_request("Hello")
+            mock_forward.return_value = _make_llm_response("The weather is nice.")
+            
+            await proxy_chat(request)
+            
+            # Check that _forward_to_llm was called once
+            mock_forward.assert_called_once()
+            # Check that it was called with the request and a request_id
+            call_args = mock_forward.call_args
+            assert call_args[0][0] == request  # First arg is the request
+            assert call_args[0][1] is not None  # Second arg is request_id (not None)
+        finally:
+            settings.llm_provider_url = original_llm_provider_url
+            settings.llm_api_path = original_llm_api_path
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_url_construction_zai_path(self, mock_forward):
+        from app.core.proxy import _forward_to_llm
+        from app.config import settings
+
+        original_llm_provider_url = settings.llm_provider_url
+        original_llm_api_path = settings.llm_api_path
+        
+        try:
+            settings.llm_provider_url = "https://api.z.ai/api/paas/v4"
+            settings.llm_api_path = "/chat/completions"
+            
+            request = _make_request("Hello")
+            mock_forward.return_value = _make_llm_response("The weather is nice.")
+            
+            await proxy_chat(request)
+            
+            # Check that _forward_to_llm was called once
+            mock_forward.assert_called_once()
+            # Check that it was called with the request and a request_id
+            call_args = mock_forward.call_args
+            assert call_args[0][0] == request  # First arg is the request
+            assert call_args[0][1] is not None  # Second arg is request_id (not None)
+        finally:
+            settings.llm_provider_url = original_llm_provider_url
+            settings.llm_api_path = original_llm_api_path
 
     @pytest.mark.asyncio
     async def test_http_error_raises_502(self):

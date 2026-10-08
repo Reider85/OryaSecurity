@@ -51,7 +51,7 @@ def _mask_blocked_content(text: str, matches: list[RuleMatch]) -> str:
 
 def _build_forward_payload(request: ChatCompletionRequest) -> dict:
     payload: dict = {
-        "model": request.model,
+        "model": settings.llm_model or request.model,
         "messages": [{"role": m.role, "content": m.content} for m in request.messages],
     }
     if request.temperature is not None:
@@ -174,7 +174,8 @@ async def _forward_to_llm(
     request: ChatCompletionRequest, request_id: str
 ) -> ChatCompletionResponse:
     payload = _build_forward_payload(request)
-    url = f"{settings.llm_provider_url.rstrip('/')}/v1/chat/completions"
+    path = settings.llm_api_path if settings.llm_api_path.startswith("/") else f"/{settings.llm_api_path}"
+    url = f"{settings.llm_provider_url.rstrip('/')}{path}"
 
     logger.info(
         "proxy_forward_to_llm",
