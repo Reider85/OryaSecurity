@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Browser } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -10,7 +10,7 @@ const testData = JSON.parse(
 test.describe('MVP Pipeline E2E Test', () => {
   let page: any;
 
-  test.beforeEach(async ({ browser }) => {
+  test.beforeEach(async ({ browser }: { browser: Browser }) => {
     page = await browser.newPage();
     await page.goto('/');
   });

@@ -8,9 +8,29 @@ import { AuditEventResponse } from "@/lib/api"
 
 interface RecentActivityProps {
   events: AuditEventResponse[]
+  isLoading?: boolean
 }
 
-export function RecentActivity({ events }: RecentActivityProps) {
+export function RecentActivity({ events, isLoading }: RecentActivityProps) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-[300px]">
+            <div className="animate-pulse space-y-4">
+              <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>

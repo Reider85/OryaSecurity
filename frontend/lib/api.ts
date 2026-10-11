@@ -2,10 +2,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface RequestOptions extends RequestInit {
   token?: string;
+  params?: Record<string, string | number>;
 }
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { token, ...fetchOptions } = options;
+  const { token, params, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> || {}),
@@ -14,11 +15,21 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  // /api/auth/* are Next.js Route Handlers on this origin (cookie set/read
-  // for UI auth). All other endpoints go to the scanner backend.
-  const url = endpoint.startsWith("/api/auth/")
+  // Handle query params
+  let url = endpoint.startsWith("/api/auth/")
     ? endpoint
     : `${API_BASE}${endpoint}`;
+  
+  if (params) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      searchParams.append(key, String(value));
+    });
+    const queryString = searchParams.toString();
+    if (queryString) {
+      url += `?${queryString}`;
+    }
+  }
 
   const res = await fetch(url, {
     ...fetchOptions,

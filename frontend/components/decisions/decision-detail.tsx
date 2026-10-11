@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Copy, Hash, Clock, Zap } from "lucide-react";
-import { DecisionDetail } from "@/lib/api";
+import type { DecisionDetail } from "@/lib/api";
 import { LatencyBreakdown } from "./latency-breakdown";
 
 interface DecisionDetailProps {
@@ -149,7 +149,7 @@ export function DecisionDetail({ decision }: DecisionDetailProps) {
                     </span>
                     {rule.position && (
                       <span className="text-xs text-muted-foreground">
-                        (pos: {rule.position.start}-{rule.position.end})
+                        (pos: {rule.position[0]}-{rule.position[1]})
                       </span>
                     )}
                     {rule.matched_value && (

@@ -11,6 +11,7 @@ interface RuleMatch {
 
 interface TopRulesChartProps {
   data: RuleMatch[]
+  isLoading?: boolean
 }
 
 const SEVERITY_COLORS = {
@@ -20,7 +21,26 @@ const SEVERITY_COLORS = {
   critical: "#dc2626"  // red
 }
 
-export function TopRulesChart({ data }: TopRulesChartProps) {
+export function TopRulesChart({ data, isLoading }: TopRulesChartProps) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Top 5 Triggered Rules (Today)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center h-[300px]">
+            <div className="animate-pulse space-y-4">
+              <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const sortedData = data
     .sort((a, b) => b.count - a.count)
     .slice(0, 5)
