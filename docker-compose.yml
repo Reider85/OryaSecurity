@@ -83,6 +83,8 @@ services:
         condition: service_healthy
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      SCANNER_API_URL: http://scanner:8000
+      HOSTNAME: 0.0.0.0
     ports:
       - "3000:3000"
     healthcheck:
