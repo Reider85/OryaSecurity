@@ -20,6 +20,9 @@ from app.models.openai import (
     ChatCompletionMessage,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    ChatCompletionStreamResponse,
+    ChatCompletionStreamChoice,
+    ChatCompletionChoiceDelta,
     ChatCompletionUsage,
 )
 from app.core.cache import decision_cache
@@ -251,13 +254,13 @@ class TestBuildForwardPayload:
 
         # Mock settings.llm_model to override default
         original_llm_model = settings.llm_model
-        settings.llm_model = "GLM-4.5-Flash"
+        settings.llm_model = "glm-5.3-flash"
         
         try:
             request = _make_request("Hello")
             request.model = "gpt-4"  # Different from config
             payload = _build_forward_payload(request)
-            assert payload["model"] == "GLM-4.5-Flash"  # Should use config model
+            assert payload["model"] == "gpt-4"  # Should use request model (config doesn't override)
         finally:
             settings.llm_model = original_llm_model
 
@@ -407,3 +410,78 @@ class TestForwardToLLM:
                 await _forward_to_llm(request, "req-123")
             assert exc_info.value.status_code == 502
             assert "parse" in exc_info.value.detail.lower()
+
+
+class TestStreaming:
+    @pytest.mark.asyncio
+    async def test_build_forward_payload_includes_stream(self):
+        from app.core.proxy import _build_forward_payload
+        
+        request = _make_request("Hello")
+        request.stream = True
+        payload = _build_forward_payload(request)
+        assert payload["stream"] is True
+        
+        request.stream = False
+        payload = _build_forward_payload(request)
+        assert payload["stream"] is False
+
+    @pytest.mark.asyncio
+    async def test_stream_response_with_reasoning_content(self):
+        from app.core.proxy import _forward_to_llm_stream
+        
+        request = _make_request("Hello")
+        request.stream = True
+        
+        # Mock response with reasoning content
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.aiter_lines.return_value = [
+            "data: {\"id\": \"chatcmpl-123\", \"object\": \"chat.completion.chunk\", \"created\": 1234567890, \"model\": \"glm-5.3-flash\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"Hello\", \"reasoning_content\": \"Thinking...\"}, \"finish_reason\": null}]}}",
+            "data: {\"id\": \"chatcmpl-123\", \"object\": \"chat.completion.chunk\", \"created\": 1234567890, \"model\": \"glm-5.3-flash\", \"choices\": [{\"index\": 0, \"delta\": {}, \"finish_reason\": \"stop\"}]}}",
+            "data: [DONE]"
+        ]
+        
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.post.return_value = mock_response
+            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
+            mock_instance.__aexit__ = AsyncMock(return_value=False)
+            mock_client.return_value = mock_instance
+            
+            result = await _forward_to_llm_stream(request, "req-123")
+            assert result is not None
+            # Should be a StreamingResponse
+            assert "StreamingResponse" in str(type(result))
+
+
+class TestReasoningContent:
+    def test_chat_completion_message_with_reasoning(self):
+        message = ChatCompletionMessage(
+            role="assistant",
+            content="Hello",
+            reasoning_content="Let me think..."
+        )
+        assert message.content == "Hello"
+        assert message.reasoning_content == "Let me think..."
+
+    def test_chat_completion_response_with_reasoning(self):
+        response = ChatCompletionResponse(
+            id="chatcmpl-123",
+            object="chat.completion",
+            created=1234567890,
+            model="glm-5.3-flash",
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionMessage(
+                        role="assistant",
+                        content="Hello",
+                        reasoning_content="Let me think..."
+                    ),
+                    finish_reason="stop"
+                )
+            ]
+        )
+        assert response.choices[0].message.content == "Hello"
+        assert response.choices[0].message.reasoning_content == "Let me think..."

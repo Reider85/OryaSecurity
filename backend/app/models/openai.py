@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class ChatCompletionMessage(BaseModel):
     role: str = Field(..., description="Message role: system, user, assistant")
     content: str | None = Field(None, description="Message content")
+    reasoning_content: str | None = Field(None, description="Reasoning content (for reasoning models)")
 
 
 class ChatCompletionRequest(BaseModel):
@@ -39,3 +40,23 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: ChatCompletionUsage = Field(default_factory=ChatCompletionUsage)
+
+
+class ChatCompletionChoiceDelta(BaseModel):
+    role: str | None = None
+    content: str | None = None
+    reasoning_content: str | None = None
+
+
+class ChatCompletionStreamChoice(BaseModel):
+    index: int
+    delta: ChatCompletionChoiceDelta
+    finish_reason: str | None = None
+
+
+class ChatCompletionStreamResponse(BaseModel):
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: list[ChatCompletionStreamChoice]

@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     llm_provider_url: str = "http://localhost:8001"
     llm_api_path: str = "/v1/chat/completions"
-    llm_model: str | None = "gpt-3.5-turbo"
+    llm_model: str | None = "glm-5.3-flash"
     llm_timeout_seconds: int = 30
     llm_api_key: str | None = None
 

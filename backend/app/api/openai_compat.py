@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.core.auth import verify_api_key, AuthInfo
 from app.core.headers import set_scanner_context
-from app.core.proxy import LLMProxyError, proxy_chat
+from app.core.proxy import LLMProxyError, proxy_chat, proxy_chat_stream
 from app.core.rate_limit import RateLimiter
 from app.models.openai import ChatCompletionRequest
 
@@ -23,7 +23,6 @@ rate_limiter = RateLimiter(max_rps=settings.rate_limit_rps)
 
 @router.post(
     "/chat/completions",
-    response_model=dict,
     summary="OpenAI-compatible Chat Completions proxy",
     description="Drop-in replacement for OpenAI Chat Completions API. "
     "Inspects prompt and generation for PII/secrets before forwarding.",
@@ -33,7 +32,7 @@ async def chat_completions(
     request: Request,
     response: Response,
     auth_info: AuthInfo = Depends(verify_api_key),
-) -> dict:
+):
     start = time.perf_counter()
     request_id = str(uuid.uuid4())
 
@@ -48,7 +47,32 @@ async def chat_completions(
     response.headers["X-Request-Id"] = request_id
 
     try:
-        result = await proxy_chat(payload)
+        if payload.stream:
+            # Handle streaming
+            stream_response = await proxy_chat_stream(payload)
+            # Add headers to streaming response
+            stream_response.headers.update({
+                "X-RateLimit-Limit": str(settings.rate_limit_rps),
+                "X-RateLimit-Remaining": str(remaining),
+                "X-Request-Id": request_id,
+            })
+            return stream_response
+        else:
+            # Handle regular response
+            result = await proxy_chat(payload)
+            latency_ms = (time.perf_counter() - start) * 1000
+
+            # proxy_chat masks blocked generations but still returns a 200 response, so
+            # the prompt verdict is "allow" here.
+            set_scanner_context(
+                request,
+                verdict="allow",
+                reason="Prompt passed inspection",
+                latency_ms=latency_ms,
+                request_id=request_id,
+            )
+
+            return result.model_dump()
     except LLMProxyError as exc:
         # proxy_chat raises for both policy blocks (403) and upstream failures
         # (502). Only a 403 is a scanner decision; a 502 means the request was
@@ -74,17 +98,3 @@ async def chat_completions(
                 "X-Request-Id": request_id,
             },
         )
-
-    latency_ms = (time.perf_counter() - start) * 1000
-
-    # proxy_chat masks blocked generations but still returns a 200 response, so
-    # the prompt verdict is "allow" here.
-    set_scanner_context(
-        request,
-        verdict="allow",
-        reason="Prompt passed inspection",
-        latency_ms=latency_ms,
-        request_id=request_id,
-    )
-
-    return result.model_dump()
