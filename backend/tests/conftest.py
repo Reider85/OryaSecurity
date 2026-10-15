@@ -10,6 +10,8 @@ from app.db.session import get_pool, close_db, init_db, get_db_connection
 
 @pytest.fixture
 def client() -> TestClient:
+    # Override the startup event to avoid database connection
+    app.router.lifespan = None
     return TestClient(app, raise_server_exceptions=False)
 
 

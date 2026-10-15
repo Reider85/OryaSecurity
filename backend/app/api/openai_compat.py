@@ -11,6 +11,10 @@ from app.config import settings
 from app.core.auth import verify_api_key, AuthInfo
 from app.core.headers import set_scanner_context
 from app.core.proxy import LLMProxyError, proxy_chat, proxy_chat_stream
+from app.core.metrics import (
+    scanner_requests_total,
+    scanner_request_duration_seconds,
+)
 from app.core.rate_limit import RateLimiter
 from app.models.openai import ChatCompletionRequest
 
@@ -49,7 +53,7 @@ async def chat_completions(
     try:
         if payload.stream:
             # Handle streaming
-            stream_response = await proxy_chat_stream(payload)
+            stream_response = await proxy_chat_stream(payload, tenant_id=auth_info.tenant_id or settings.default_tenant_id)
             # Add headers to streaming response
             stream_response.headers.update({
                 "X-RateLimit-Limit": str(settings.rate_limit_rps),
@@ -59,7 +63,7 @@ async def chat_completions(
             return stream_response
         else:
             # Handle regular response
-            result = await proxy_chat(payload)
+            result = await proxy_chat(payload, tenant_id=auth_info.tenant_id or settings.default_tenant_id)
             latency_ms = (time.perf_counter() - start) * 1000
 
             # proxy_chat masks blocked generations but still returns a 200 response, so
@@ -71,6 +75,13 @@ async def chat_completions(
                 latency_ms=latency_ms,
                 request_id=request_id,
             )
+
+            # Record request metrics
+            scanner_request_duration_seconds.observe(latency_ms / 1000)
+            scanner_requests_total.labels(
+                verdict="allow",
+                tenant_id=auth_info.tenant_id or settings.default_tenant_id or "unknown",
+            ).inc()
 
             return result.model_dump()
     except LLMProxyError as exc:
@@ -88,6 +99,13 @@ async def chat_completions(
             latency_ms=latency_ms,
             request_id=request_id,
         )
+
+        # Record request metrics
+        scanner_request_duration_seconds.observe(latency_ms / 1000)
+        scanner_requests_total.labels(
+            verdict=verdict,
+            tenant_id=auth_info.tenant_id or settings.default_tenant_id or "unknown",
+        ).inc()
 
         return JSONResponse(
             status_code=exc.status_code,

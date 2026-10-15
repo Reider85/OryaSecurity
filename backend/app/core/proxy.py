@@ -9,10 +9,11 @@ import structlog
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
-from app.core.audit import write_audit_event
+from app.core.audit import write_audit_event, write_event
 from app.core.cache import decision_cache
 from app.core.pdp import decide, scan_text
 from app.core.rules.base import RuleMatch
+from app.core.redactor import redact
 from app.models.openai import (
     ChatCompletionChoice,
     ChatCompletionMessage,
@@ -75,7 +76,7 @@ def _build_forward_payload(request: ChatCompletionRequest) -> dict:
     return payload
 
 
-async def proxy_chat(request: ChatCompletionRequest) -> ChatCompletionResponse:
+async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = None) -> ChatCompletionResponse:
     request_id = str(uuid.uuid4())
     start_time = time.monotonic()
 
@@ -114,19 +115,31 @@ async def proxy_chat(request: ChatCompletionRequest) -> ChatCompletionResponse:
     )
 
     if verdict_action == "block":
-        write_audit_event(
+        await write_event(
             request_id=request_id,
-            tenant_id=None,
+            tenant_id=tenant_id,
             prompt_hash=prompt_hash,
             verdict="block",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
         )
         raise LLMProxyError(
             status_code=403,
             detail=verdict_reason,
         )
+
+    await write_event(
+        request_id=request_id,
+        tenant_id=tenant_id,
+        prompt_hash=prompt_hash,
+        verdict="allow",
+        reason=verdict_reason,
+        rules_matched=verdict_matches,
+        prompt_text_redacted=redact(prompt_text, prompt_matches),
+        latency_ms=latency_ms,
+    )
 
     llm_response = await _forward_to_llm(request, request_id)
 
@@ -164,31 +177,33 @@ async def proxy_chat(request: ChatCompletionRequest) -> ChatCompletionResponse:
             rules_matched_count=len(gen_verdict_matches),
         )
 
-        write_audit_event(
+        await write_event(
             request_id=request_id,
-            tenant_id=None,
+            tenant_id=tenant_id,
             prompt_hash=prompt_hash,
             verdict="block",
             reason=f"Generation blocked: {gen_verdict.reason}",
             rules_matched=gen_verdict_matches,
+            prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
             metadata={"direction": "generation"},
         )
     else:
-        write_audit_event(
+        await write_event(
             request_id=request_id,
-            tenant_id=None,
+            tenant_id=tenant_id,
             prompt_hash=prompt_hash,
             verdict="allow",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
         )
 
     return llm_response
 
 
-async def proxy_chat_stream(request: ChatCompletionRequest) -> StreamingResponse:
+async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | None = None) -> StreamingResponse:
     request_id = str(uuid.uuid4())
     start_time = time.monotonic()
 
@@ -227,19 +242,31 @@ async def proxy_chat_stream(request: ChatCompletionRequest) -> StreamingResponse
     )
 
     if verdict_action == "block":
-        write_audit_event(
+        await write_event(
             request_id=request_id,
-            tenant_id=None,
+            tenant_id=tenant_id,
             prompt_hash=prompt_hash,
             verdict="block",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
         )
         raise LLMProxyError(
             status_code=403,
             detail=verdict_reason,
         )
+
+    await write_event(
+        request_id=request_id,
+        tenant_id=tenant_id,
+        prompt_hash=prompt_hash,
+        verdict="allow",
+        reason=verdict_reason,
+        rules_matched=verdict_matches,
+        prompt_text_redacted=redact(prompt_text, prompt_matches),
+        latency_ms=latency_ms,
+    )
 
     return await _forward_to_llm_stream(request, request_id)
 
@@ -465,6 +492,18 @@ async def _forward_to_llm_stream(
                                             )
                                         ]
                                     )
+                                # Write audit event for successful stream completion
+                                await write_event(
+                                    request_id=request_id,
+                                    tenant_id=tenant_id,
+                                    prompt_hash=prompt_hash,
+                                    verdict="allow",
+                                    reason="Prompt passed inspection",
+                                    rules_matched=verdict_matches,
+                                    prompt_text_redacted=redact(prompt_text, prompt_matches),
+                                    latency_ms=(time.monotonic() - start_time) * 1000,
+                                    metadata={"direction": "stream", "cache_hit": cache_hit},
+                                )
                                 yield f"data: {final_stream_response.model_dump_json()}\n\n"
                                 break
                                 
