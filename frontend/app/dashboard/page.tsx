@@ -7,40 +7,44 @@ import { RequestsChart } from "@/components/metrics/requests-chart"
 import { TopRulesChart } from "@/components/metrics/top-rules-chart"
 import { RecentActivity } from "@/components/audit/recent-activity"
 import { api } from "@/lib/api"
+import { useAuth } from "@/lib/auth"
 
 export default function DashboardPage() {
+  const { token } = useAuth()
+  const authToken = token ?? undefined
+
   // Metrics summary query (5s refresh)
   const { data: metricsSummary, isLoading: metricsLoading } = useQuery({
     queryKey: ["metrics-summary"],
-    queryFn: () => api.getMetricsSummary(),
+    queryFn: () => api.getMetricsSummary(authToken),
     refetchInterval: 5000, // Refresh every 5 seconds
   })
 
   // Recent audit events query (10s refresh)
   const { data: auditEvents, isLoading: auditLoading } = useQuery({
     queryKey: ["audit-events"],
-    queryFn: () => api.getAuditEvents({ limit: 10 }),
+    queryFn: () => api.getAuditEvents({ limit: 10 }, authToken),
     refetchInterval: 10000, // Refresh every 10 seconds
   })
 
   // Requests chart data (24h history, 1h buckets)
   const { data: requestsChartData, isLoading: requestsLoading } = useQuery({
     queryKey: ["requests-chart"],
-    queryFn: () => api.getRequestChartData({ hours: 24 }),
+    queryFn: () => api.getRequestChartData({ hours: 24 }, authToken),
     refetchInterval: 300000, // Refresh every 5 minutes
   })
 
   // Rules chart data (top rules matched)
   const { data: rulesChartData, isLoading: rulesLoading } = useQuery({
     queryKey: ["rules-chart"],
-    queryFn: () => api.getRulesChartData({ days: 7 }),
+    queryFn: () => api.getRulesChartData({ days: 7 }, authToken),
     refetchInterval: 300000, // Refresh every 5 minutes
   })
 
   // Real-time chart data (60m history, 1m buckets)
   const { data: realtimeData } = useQuery({
     queryKey: ["realtime-chart"],
-    queryFn: () => api.getRealtimeChartData({ minutes: 60 }),
+    queryFn: () => api.getRealtimeChartData({ minutes: 60 }, authToken),
     refetchInterval: 30000, // Refresh every 30 seconds
   })
 

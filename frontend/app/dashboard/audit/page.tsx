@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AuditFilters } from "@/components/audit/audit-filters";
 import { AuditTable } from "@/components/audit/audit-table";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 interface AuditFiltersState {
   verdict?: string;
@@ -15,6 +16,8 @@ interface AuditFiltersState {
 }
 
 export default function AuditPage() {
+  const { token } = useAuth()
+  const authToken = token ?? undefined
   const [filters, setFilters] = useState<AuditFiltersState>({});
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -25,7 +28,7 @@ export default function AuditPage() {
       page: currentPage,
       limit: 50,
       ...filters,
-    }),
+    }, authToken),
     placeholderData: keepPreviousData,
   });
 

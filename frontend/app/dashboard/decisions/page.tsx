@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DecisionsFilters } from "@/components/decisions/decisions-filters";
 import { DecisionsTable } from "@/components/decisions/decisions-table";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 interface DecisionsFiltersState {
   verdict?: string;
@@ -16,6 +17,8 @@ interface DecisionsFiltersState {
 }
 
 export default function DecisionsPage() {
+  const { token } = useAuth()
+  const authToken = token ?? undefined
   const [filters, setFilters] = useState<DecisionsFiltersState>({});
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -26,7 +29,7 @@ export default function DecisionsPage() {
       page: currentPage,
       limit: 50,
       ...filters,
-    }),
+    }, authToken),
     placeholderData: keepPreviousData,
   });
 
