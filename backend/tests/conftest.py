@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.config import settings
 from app.db.session import get_pool, close_db, init_db, get_db_connection
+
+# Set the working directory to the backend directory to ensure rules are found
+os.chdir(os.path.dirname(os.path.dirname(__file__)))
 
 
 @pytest.fixture

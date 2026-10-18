@@ -1,0 +1,10 @@
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Hello"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": " there"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": "! How"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": " can I"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": " help"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": " you"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": " today"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": "?"}, "finish_reason": null}]}
+{"id": "chatcmpl-7QyqpwdfhqwajicIEznoc6Q47XAyW", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}]}
+data: [DONE]
