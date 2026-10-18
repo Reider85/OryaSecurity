@@ -136,7 +136,7 @@ llm-security-scanner/
 
 ### EP-07: Streaming Inspector
 
-#### Промпт 7.1 — SSE streaming от LLM
+#### Промпт 1 — SSE streaming от LLM
 
 ```
 Реализуй SSE streaming endpoint в backend/app/api/v2/openai_stream.py.
@@ -153,7 +153,7 @@ Endpoint: POST /v2/chat/completions (streaming version)
 - Поддержи OpenAI streaming format: data: {...}\n\n
 - Last event: data: [DONE]\n\n
 
-Зависимости: backend/app/core/streaming/inspector.py (см. промпт 7.2)
+Зависимости: backend/app/core/streaming/inspector.py (см. промпт 2)
 
 Файлы:
 - backend/app/api/v2/openai_stream.py
@@ -163,7 +163,7 @@ Endpoint: POST /v2/chat/completions (streaming version)
 - backend/tests/fixtures/streaming/sample_stream.jsonl — sample LLM chunks
 ```
 
-#### Промпт 7.2 — Чанковая инспекция N=8 токенов
+#### Промпт 2 — Чанковая инспекция N=8 токенов
 
 ```
 Реализуй StreamingInspector в backend/app/core/streaming/inspector.py.
@@ -201,7 +201,7 @@ class StreamingInspector:
 - backend/tests/fixtures/streaming/test_chunks.json
 ```
 
-#### Промпт 7.3 — Terminate stream при BLOCK
+#### Промпт 3 — Terminate stream при BLOCK
 
 ```
 Реализуй корректное завершение SSE при BLOCK в backend/app/core/streaming/block_handler.py.
@@ -221,7 +221,7 @@ class StreamingInspector:
 - backend/tests/core/test_block_handler.py
 ```
 
-#### Промпт 7.4 — Regex check на чанках
+#### Промпт 4 — Regex check на чанках
 
 ```
 Расширь rule engine для работы на streaming chunks в backend/app/core/detectors/streaming_rules.py.
@@ -238,7 +238,7 @@ class StreamingInspector:
 - backend/tests/core/detectors/test_streaming_rules.py
 ```
 
-#### Промпт 7.5 — Lightweight ML toxicity classifier на чанках
+#### Промпт 5 — Lightweight ML toxicity classifier на чанках
 
 ```
 Реализуй ML toxicity classifier для streaming chunks в backend/app/core/detectors/toxicity.py.
@@ -261,7 +261,7 @@ class StreamingInspector:
 - backend/tests/core/detectors/test_toxicity.py
 ```
 
-#### Промпт 7.6 — Async post-factum deep analysis
+#### Промпт 6 — Async post-factum deep analysis
 
 ```
 Реализуй async post-factum analysis в backend/app/core/streaming/post_factum.py.
@@ -289,7 +289,7 @@ Timeout: 5 секунд. Если не успели → log warning.
 
 ### EP-08: Embedding Service
 
-#### Промпт 8.1 — Triton Inference Server с multilingual-e5
+#### Промпт 7 — Triton Inference Server с multilingual-e5
 
 ```
 Разверни Triton Inference Server для embedding model.
@@ -327,7 +327,7 @@ services:
 - backend/tests/ml/test_triton_embedding.py
 ```
 
-#### Промпт 8.2 — ONNX int8 модель для CPU fallback
+#### Промпт 8 — ONNX int8 модель для CPU fallback
 
 ```
 Сконвертируй multilingual-e5 в ONNX int8 для CPU-only deployments.
@@ -349,7 +349,7 @@ services:
 - docs/ml-model-export.md — инструкция
 ```
 
-#### Промпт 8.3 — Embedding cache в Redis
+#### Промпт 9 — Embedding cache в Redis
 
 ```
 Реализуй embedding cache в backend/app/core/cache_embedding.py.
@@ -371,7 +371,7 @@ class EmbeddingCache:
 - backend/tests/core/test_embedding_cache.py (fakeredis)
 ```
 
-#### Промпт 8.5 — Batching
+#### Промпт 10 — Batching
 
 ```
 Реализуй batching для embedding inference в backend/app/ml/batcher.py.
@@ -405,7 +405,7 @@ class EmbeddingBatcher:
 
 ### EP-09: Vector DB (Qdrant)
 
-#### Промпт 9.1 — Qdrant deployment
+#### Промпт 11 — Qdrant deployment
 
 ```
 Разверни Qdrant cluster (3 ноды, RF=2) для ALPHA.
@@ -436,7 +436,7 @@ volumes:
 - backend/tests/integration/test_qdrant.py
 ```
 
-#### Промпт 9.2 — Collection с 10K векторов атак
+#### Промпт 12 — Collection с 10K векторов атак
 
 ```
 Создай коллекцию prompt_attacks с 10K seed векторов.
@@ -463,7 +463,7 @@ Script idempotent (re-runnable).
 - backend/tests/integration/test_seed_qdrant.py
 ```
 
-#### Промпт 9.3 — Search endpoint с HNSW
+#### Промпт 13 — Search endpoint с HNSW
 
 ```
 Реализуй vector search в backend/app/core/detectors/vector_search.py.
@@ -488,7 +488,7 @@ SLO: p99 latency < 30ms (top-K=10)
 - backend/tests/core/detectors/test_vector_search.py
 ```
 
-#### Промпт 9.4 — Scalar quantization int8
+#### Промпт 14 — Scalar quantization int8
 
 ```
 Включи scalar quantization в Qdrant collection.
@@ -516,7 +516,7 @@ Target: recall > 95% (cosine similarity ranking unchanged).
 - backend/tests/integration/test_qdrant_quantization.py
 ```
 
-#### Промпт 9.5 — Backup/restore: snapshots
+#### Промпт 15 — Backup/restore: snapshots
 
 ```
 Настрой Qdrant snapshots каждые 6 часов в S3.
@@ -541,7 +541,7 @@ Restore: backend/scripts/qdrant_restore.sh — download snapshot, restore.
 
 ### EP-10: ML Classifier
 
-#### Промпт 10.1 — Fine-tune DeBERTa-v3-small
+#### Промпт 16 — Fine-tune DeBERTa-v3-small
 
 ```
 Обучи ML classifier для prompt-injection detection.
@@ -586,7 +586,7 @@ Artifacts:
 - docs/ml-training.md
 ```
 
-#### Промпт 10.2 — ONNX int8 export
+#### Промпт 17 — ONNX int8 export
 
 ```
 Сконвертируй обученный classifier в ONNX int8.
@@ -610,7 +610,7 @@ Artifacts:
 - backend/tests/ml/test_classifier_onnx.py
 ```
 
-#### Промпт 10.3 — Inference service
+#### Промпт 18 — Inference service
 
 ```
 Реализуй ML classifier inference в backend/app/core/detectors/ml_classifier.py.
@@ -633,7 +633,7 @@ Latency target: < 15ms per request (batch=1), < 5ms (batch=32)
 - backend/tests/core/detectors/test_ml_classifier.py
 ```
 
-#### Промпт 10.4 — SHAP explainability
+#### Промпт 19 — SHAP explainability
 
 ```
 Добавь SHAP explainability для classifier в backend/app/core/detectors/classifier_explainability.py.
@@ -651,7 +651,7 @@ Latency target: < 15ms per request (batch=1), < 5ms (batch=32)
 - backend/tests/core/detectors/test_explainability.py
 ```
 
-#### Промпт 10.5 — Hold-out test set + F1
+#### Промпт 20 — Hold-out test set + F1
 
 ```
 Создай hold-out test set и evaluation pipeline.
@@ -687,7 +687,7 @@ CI: при каждом PR, если меняется модель — запу�
 
 ### EP-11: Two-tier Pipeline
 
-#### Промпт 11.1 — Fast path
+#### Промпт 21 — Fast path
 
 ```
 Реализуй fast path в backend/app/core/pipeline/fast_path.py.
@@ -709,7 +709,7 @@ Latency target: < 1ms
 - backend/tests/core/pipeline/test_fast_path.py
 ```
 
-#### Промпт 11.2 — Suspicion tagger
+#### Промпт 22 — Suspicion tagger
 
 ```
 Реализуй suspicion tagger в backend/app/core/pipeline/suspicion_tagger.py.
@@ -728,7 +728,7 @@ Returns: {is_suspicious: bool, reasons: list[str]}
 - backend/tests/core/pipeline/test_suspicion_tagger.py
 ```
 
-#### Промпт 11.3 — Slow path
+#### Промпт 23 — Slow path
 
 ```
 Реализуй slow path в backend/app/core/pipeline/slow_path.py.
@@ -749,7 +749,7 @@ Circuit breakers для embedding, vector_search, ml_classifier.
 - backend/tests/core/pipeline/test_slow_path.py
 ```
 
-#### Промпт 11.4 — Метрика fast/slow ratio
+#### Промпт 24 — Метрика fast/slow ratio
 
 ```
 Добавь Prometheus метрику: scanner_path_distribution{path="fast"|"slow"|"cache_hit"} (counter).
@@ -766,7 +766,7 @@ Circuit breakers для embedding, vector_search, ml_classifier.
 
 ### EP-12: OPA Policy Decision Point
 
-#### Промпт 12.1 — OPA deployment
+#### Промпт 25 — OPA deployment
 
 ```
 Разверни OPA + bundle service.
@@ -796,7 +796,7 @@ services:
 - docs/opa-bundles.md
 ```
 
-#### Промпт 12.2 — Rego policies
+#### Промпт 26 — Rego policies
 
 ```
 Создай Rego policies в policies/.
@@ -838,7 +838,7 @@ redact[pii_type] {
 Тесты: backend/tests/policies/test_rego.py (используй opa-python)
 ```
 
-#### Промпт 12.3 — Git repo для policies + signed commits
+#### Промпт 27 — Git repo для policies + signed commits
 
 ```
 Настрой Git для policies.
@@ -860,7 +860,7 @@ redact[pii_type] {
 - policies/README.md
 ```
 
-#### Промпт 12.4 — Policy versions + bundle deployment
+#### Промпт 28 — Policy versions + bundle deployment
 
 ```
 Реализуй versioned bundle deployment.
@@ -891,7 +891,7 @@ Backend audit log: каждый decision содержит policy_version из in
 - backend/app/core/pdp/opa_client.py — fetch active policy version
 ```
 
-#### Промпт 12.5 — Audit log: policy_version
+#### Промпт 29 — Audit log: policy_version
 
 ```
 Добавь поле policy_version в audit log.
@@ -911,7 +911,7 @@ UI: в Audit Log таблице добавить колонку Policy Version (
 - frontend/components/audit/audit-table.tsx — add column
 ```
 
-#### Промпт 12.6 — Unit-тесты для Rego
+#### Промпт 30 — Unit-тесты для Rego
 
 ```
 Создай Rego unit tests в policies/*_test.rego.
@@ -945,7 +945,7 @@ CI: на каждый PR — opa test, fail если любой тест failing
 
 ### EP-13: Vault PII Redaction
 
-#### Промпт 13.1 — HashiCorp Vault deployment
+#### Промпт 31 — HashiCorp Vault deployment
 
 ```
 Разверни HashiCorp Vault в HA mode.
@@ -975,7 +975,7 @@ vault write tokenization/config template="sSSN_T_43"...
 - docs/vault-setup.md
 ```
 
-#### Промпт 13.2 — Tokenize PII
+#### Промпт 32 — Tokenize PII
 
 ```
 Реализуй PII tokenization в backend/app/core/redaction/redactor.py.
@@ -1000,7 +1000,7 @@ Latency: < 5ms per redaction (single PII), < 20ms для нескольких.
 - backend/tests/core/test_redactor.py
 ```
 
-#### Промпт 13.3 — Reverse lookup
+#### Промпт 33 — Reverse lookup
 
 ```
 Реализуй reverse tokenization в backend/app/core/redaction/detokenizer.py.
@@ -1020,7 +1020,7 @@ class PIIDetokenizer:
 - backend/tests/core/test_detokenizer.py
 ```
 
-#### Промпт 13.4 — TTL 5min, auto-cleanup
+#### Промпт 34 — TTL 5min, auto-cleanup
 
 ```
 Настрой Vault TTL для tokens.
@@ -1037,7 +1037,7 @@ Script: backend/scripts/vault_cleanup.py — каждые 5 минут удал�
 - backend/tests/integration/test_vault_ttl.py
 ```
 
-#### Промпт 13.5 — Presidio NER integration
+#### Промпт 35 — Presidio NER integration
 
 ```
 Интегрируй Microsoft Presidio для нестандартных PII в backend/app/core/detectors/pii_ner.py.
@@ -1064,7 +1064,7 @@ class PIIDetector:
 
 ### EP-14: Circuit Breaker
 
-#### Промпт 14.1 — CB для Vector DB
+#### Промпт 36 — CB для Vector DB
 
 ```
 Реализуй Circuit Breaker для Qdrant в backend/app/core/circuit_breaker.py.
@@ -1093,7 +1093,7 @@ Pybreaker listeners:
 - backend/tests/core/test_circuit_breaker.py
 ```
 
-#### Промпт 14.2 — CB для ML Classifier
+#### Промпт 37 — CB для ML Classifier
 
 ```
 Реализуй CB для ML classifier (аналогично 14.1).
@@ -1106,7 +1106,7 @@ Fallback mode: degrade (rule-only).
 - backend/tests/core/test_ml_cb.py
 ```
 
-#### Промпт 14.3 — CB для Vault
+#### Промпт 38 — CB для Vault
 
 ```
 Реализуй CB для Vault.
@@ -1119,7 +1119,7 @@ Fallback mode: ВСЕГДА fail-closed (для PII policies).
 - backend/tests/core/test_vault_cb.py
 ```
 
-#### Промпт 14.4 — Метрика CB state + alert
+#### Промпт 39 — Метрика CB state + alert
 
 ```
 Экспортируй CB state в Prometheus.
@@ -1146,7 +1146,7 @@ Alertmanager rules:
 
 ### EP-15: Observability
 
-#### Промпт 15.1 — OTel instrumentation
+#### Промпт 40 — OTel instrumentation
 
 ```
 Добавь OpenTelemetry instrumentation во все компоненты.
@@ -1181,7 +1181,7 @@ Trace context propagation:
 - pyproject.toml — add OTel deps
 ```
 
-#### Промпт 15.2 — Jaeger + trace sampling
+#### Промпт 41 — Jaeger + trace sampling
 
 ```
 Разверни Jaeger для traces.
@@ -1221,7 +1221,7 @@ exporters:
 - backend/app/core/observability.py — set sampler
 ```
 
-#### Промпт 15.3 — Loki structured logs
+#### Промпт 42 — Loki structured logs
 
 ```
 Настрой Loki для логов.
@@ -1254,7 +1254,7 @@ LogQL queries:
 - docker-compose.alpha.yml
 ```
 
-#### Промпт 15.4 — Operational Grafana dashboard
+#### Промпт 43 — Operational Grafana dashboard
 
 ```
 Создай operational Grafana dashboard в observability/grafana/dashboards/scanner_operational.json.
@@ -1277,7 +1277,7 @@ Variables: tenant_id (dropdown from Prometheus labels).
 - docs/grafana-dashboards.md
 ```
 
-#### Промпт 15.5 — Alertmanager + 5 базовых алертов
+#### Промпт 44 — Alertmanager + 5 базовых алертов
 
 ```
 Настрой Alertmanager с 5 alerts.
@@ -1307,7 +1307,7 @@ Alertmanager routing:
 - docker-compose.alpha.yml
 ```
 
-#### Промпт 15.6 — PagerDuty integration
+#### Промпт 45 — PagerDuty integration
 
 ```
 Настрой PagerDuty для Critical alerts.
@@ -1344,7 +1344,7 @@ Env vars: PAGERDUTY_SERVICE_KEY, SLACK_WEBHOOK_URL.
 
 ## 3. Cross-cutting: EP-35 (Ingress), EP-37.3 (toxicity), EP-40 (security), EP-41.6 (OpenAPI)
 
-#### Промпт 35.1 — Envoy sidecar с TLS termination
+#### Промпт 46 — Envoy sidecar с TLS termination
 
 ```
 Разверни Envoy как frontend proxy с TLS.
@@ -1378,7 +1378,7 @@ Self-signed cert для dev: backend/scripts/gen_certs.sh.
 - docs/envoy-setup.md
 ```
 
-#### Промпт 35.5 — Token length limit + complexity score
+#### Промпт 47 — Token length limit + complexity score
 
 ```
 Реализуй DoS protection в backend/app/core/dos_protection.py.
@@ -1402,7 +1402,7 @@ Middleware: проверяет каждый request до scanner pipeline.
 - backend/tests/core/test_dos_protection.py
 ```
 
-#### Промпт 40.1 — Input sanitization для ML inputs
+#### Промпт 48 — Input sanitization для ML inputs
 
 ```
 Реализуй input sanitization перед ML inference в backend/app/core/security/ml_input_sanitizer.py.
@@ -1427,7 +1427,7 @@ class MLInputSanitizer:
 - backend/tests/core/test_ml_input_sanitizer.py
 ```
 
-#### Промпт 40.2 — Structured logging с PII redaction layer
+#### Промпт 49 — Structured logging с PII redaction layer
 
 ```
 Реализуй PII redaction layer для логов в backend/app/core/logging_redactor.py.
@@ -1448,7 +1448,7 @@ Output: "User prompt: my SSN is <SSN_REDACTED>"
 - backend/tests/core/test_logging_redactor.py
 ```
 
-#### Промпт 40.7 — API rate limit на embedding/classifier endpoints
+#### Промпт 50 — API rate limit на embedding/classifier endpoints
 
 ```
 Реализуй rate limit для ML endpoints (защита от model extraction attacks).
@@ -1466,7 +1466,7 @@ Implementation:
 - backend/tests/api/test_ml_rate_limit.py
 ```
 
-#### Промпт 40.8 — Dependency vulnerability scanning
+#### Промпт 51 — Dependency vulnerability scanning
 
 ```
 Настрой weekly Trivy scan в CI.
@@ -1486,7 +1486,7 @@ Trivy config: .trivyignore.yaml (для accepted false positives).
 - docs/security-scanning.md
 ```
 
-#### Промпт 41.6 — OpenAPI 3.1 spec
+#### Промпт 52 — OpenAPI 3.1 spec
 
 ```
 Расширь OpenAPI spec для v2 endpoints.
@@ -1515,7 +1515,7 @@ Auto-generated через FastAPI, экспорт в docs/openapi.yaml.
 
 ## 4. Финальная интеграция ALPHA
 
-#### Промпт FINAL-ALPHA — E2E streaming test
+#### Промпт 53 — E2E streaming test
 
 ```
 Создай E2E тест для ALPHA pipeline.
