@@ -142,57 +142,54 @@ def mock_upstream_transport():
 
 
 class TestStreamingInspector:
-    """Test the minimal streaming inspector."""
-    
+    """Test the chunk-based streaming inspector via the API-facing surface."""
+
     @pytest.mark.asyncio
     async def test_inspector_allow_clean_text(self):
-        """Test inspector allows clean text."""
-        inspector = StreamingInspector()
+        """Inspector allows clean text (buffer not yet full)."""
+        inspector = StreamingInspector(chunk_size=8)
         result = await inspector.inspect_chunk("Hello world")
-        
+
         assert result.blocked is False
         assert result.decision is None
         assert result.accumulated_text == "Hello world"
-    
+
     @pytest.mark.asyncio
     async def test_inspector_block_pii(self):
-        """Test inspector blocks PII."""
-        inspector = StreamingInspector()
-        
-        # Test with SSN
-        result = await inspector.inspect_chunk("My SSN is 123-45-6789")
-        
+        """Inspector blocks PII once buffer fills."""
+        inspector = StreamingInspector(chunk_size=2)
+
+        await inspector.inspect_chunk("My SSN is ")
+        result = await inspector.inspect_chunk("123-45-6789")
+
         assert result.blocked is True
         assert result.decision is not None
         assert "pii_ssn_us" in result.decision.reason
         assert result.decision.rule_ids is not None
-    
+
     @pytest.mark.asyncio
     async def test_inspector_boundary_detection(self):
-        """Test inspector detects PII across chunk boundaries."""
-        inspector = StreamingInspector()
-        
-        # First chunk
-        result1 = await inspector.inspect_chunk("My SSN is 123-45-")
-        assert result1.blocked is False
-        
-        # Second chunk completes SSN
-        result2 = await inspector.inspect_chunk("6789")
-        assert result2.blocked is True
-        assert result2.decision is not None
-        assert "pii_ssn_us" in result2.decision.reason
-    
+        """Inspector detects PII across chunk boundaries via prev_tail."""
+        inspector = StreamingInspector(chunk_size=2)
+
+        await inspector.inspect_chunk("My SSN is 123-45-")
+        r1 = await inspector.inspect_chunk("67")
+        assert r1.blocked is False
+
+        await inspector.inspect_chunk("89 and more")
+        r2 = await inspector.inspect_chunk(" text")
+        assert r2.blocked is True
+        assert r2.decision is not None
+        assert "pii_ssn_us" in r2.decision.reason
+
     @pytest.mark.asyncio
     async def test_inspector_finalize(self):
-        """Test finalize method."""
-        inspector = StreamingInspector()
-        
-        # Add some text
+        """Finalize allows clean leftover buffer."""
+        inspector = StreamingInspector(chunk_size=8)
+
         await inspector.inspect_chunk("Hello world")
-        
-        # Finalize
         result = await inspector.finalize()
-        
+
         assert result.blocked is False
         assert result.accumulated_text == "Hello world"
 

@@ -1,71 +1,171 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
-from typing import Any
+import structlog
+from typing import Any, Awaitable, Callable, Optional
 
+from app.core.metrics import scanner_stream_blocks_total, scanner_stream_chunks_total
 from app.core.pdp import decide, scan_text
-from app.core.rules.base import RuleMatch
 from app.core.streaming.types import BlockDecision, InspectResult
+
+logger = structlog.get_logger()
+
+# Default number of "tokens" (inspect_chunk calls) buffered before running checks.
+DEFAULT_CHUNK_SIZE = 8
+# Number of trailing characters from the previous buffer reused for boundary detection.
+DEFAULT_PREV_TAIL_SIZE = 20
+# Timeout for async post-factum deep analysis.
+POST_FACTUM_TIMEOUT_SECONDS = 5.0
 
 
 class StreamingInspector:
-    """Minimal streaming inspector using existing rule engine."""
+    """Chunk-based streaming inspector.
 
-    def __init__(self, chunk_window_size: int = 512, prev_tail_size: int = 20):
-        self.accumulated_text = ""
-        self.chunk_window_size = chunk_window_size
-        self.prev_tail_size = prev_tail_size
+    Buffers up to ``chunk_size`` incoming "tokens" (each ``inspect_chunk`` call
+    counts as one token), then runs a fast regex check (PII/secrets) plus an
+    optional lightweight ML toxicity classifier on the joined buffer. After the
+    stream completes, ``finalize`` flushes any remaining buffer and schedules
+    an async post-factum deep analysis via an injectable hook.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+        prev_tail_size: int = DEFAULT_PREV_TAIL_SIZE,
+        toxicity_detector: Optional[Any] = None,
+        post_factum_hook: Optional[
+            Callable[[str], Awaitable[None]]
+        ] = None,
+    ):
+        self.chunk_size = max(1, chunk_size)
+        self.prev_tail_size = max(0, prev_tail_size)
+        self.toxicity_detector = toxicity_detector
+        self.post_factum_hook = post_factum_hook
+
+        self.buffer: list[str] = []
+        self.accumulated_text: str = ""
+        self.prev_tail: str = ""
+        self._blocked: bool = False
 
     async def inspect_chunk(self, text: str) -> InspectResult:
-        """Inspect a chunk and return result.
-        
+        """Buffer a token and run checks once the buffer is full.
+
         Args:
-            text: Text chunk from LLM
-            
+            text: One streamed token/chunk from the LLM.
+
         Returns:
-            InspectResult: allow/block decision with accumulated text and matches
+            InspectResult: allow (buffer not yet full or no matches) or block.
         """
-        # Accumulate text
-        self.accumulated_text += text
-        
-        # Create inspection window: accumulated text + previous tail for boundary detection
-        inspection_text = self.accumulated_text
-        
-        # For boundary detection, include previous tail if available
-        if len(self.accumulated_text) > self.chunk_window_size:
-            # Use window from accumulated text
-            inspection_text = self.accumulated_text[-self.chunk_window_size:]
-        
-        # Scan the inspection window
-        matches, _ = scan_text(inspection_text)
-        
-        if not matches:
-            # No matches found
-            return InspectResult.allow(accumulated_text=self.accumulated_text)
-        
-        # Make decision using existing rule engine
-        verdict = decide(matches)
-        
-        if verdict.action == "block":
-            # Convert matches to rule_ids for BlockDecision
-            rule_ids = [m.rule_id for m in matches]
-            decision = BlockDecision(
-                reason=verdict.reason,
-                rule_ids=rule_ids
+        scanner_stream_chunks_total.inc()
+
+        if self._blocked:
+            # Already blocked earlier in the stream — keep returning block.
+            return InspectResult.block(
+                BlockDecision(reason="already_blocked"),
+                accumulated_text=self.accumulated_text,
             )
-            return InspectResult.block(decision, accumulated_text=self.accumulated_text)
-        
-        # Allow but log matches
+
+        self.buffer.append(text)
+        self.accumulated_text += text
+
+        if len(self.buffer) < self.chunk_size:
+            return InspectResult.allow(accumulated_text=self.accumulated_text)
+
+        return await self._run_checks()
+
+    async def _run_checks(self) -> InspectResult:
+        """Run regex + toxicity checks on the current buffer."""
+        if not self.buffer:
+            return InspectResult.allow(accumulated_text=self.accumulated_text)
+
+        joined = "".join(self.buffer)
+        inspection_text = self.prev_tail + joined
+
+        # Fast regex check (PII, secrets) with boundary support via prev_tail.
+        matches, _ = scan_text(inspection_text)
+
+        if matches:
+            verdict = decide(matches)
+            if verdict.action == "block":
+                self._blocked = True
+                block_match = next(
+                    (m for m in matches if m.action == "block"), matches[0]
+                )
+                # Translate match position in inspection_text back to
+                # accumulated_text coordinates (inspection_text starts with prev_tail).
+                window_start = len(self.accumulated_text) - len(joined)
+                rel_pos = max(0, block_match.position[0] - len(self.prev_tail))
+                abs_pos = window_start + rel_pos
+                decision = BlockDecision(
+                    reason=verdict.reason,
+                    position=abs_pos,
+                    rule_ids=[m.rule_id for m in matches],
+                )
+                scanner_stream_blocks_total.labels(reason_type="rules").inc()
+                return InspectResult.block(
+                    decision, accumulated_text=self.accumulated_text
+                )
+
+        # Lightweight ML toxicity check (optional collaborator).
+        if self.toxicity_detector is not None:
+            tox = await self.toxicity_detector.check(joined)
+            if tox.is_toxic:
+                self._blocked = True
+                scanner_stream_blocks_total.labels(reason_type="toxicity").inc()
+                decision = BlockDecision(
+                    reason=f"toxicity_score={tox.toxicity_score:.2f}",
+                    position=len(self.accumulated_text) - len(joined),
+                    rule_ids=["toxicity"],
+                )
+                return InspectResult.block(
+                    decision, accumulated_text=self.accumulated_text
+                )
+
+        # No block — rotate buffer, keep a tail for boundary detection.
+        self.prev_tail = (self.prev_tail + joined)[-self.prev_tail_size :]
+        self.buffer = []
         return InspectResult.allow(accumulated_text=self.accumulated_text)
 
     async def finalize(self) -> InspectResult:
-        """Final inspection after stream completes.
-        
+        """Flush remaining buffer and schedule async post-factum analysis.
+
         Returns:
-            InspectResult: allow result (stub for post-factum analysis)
+            InspectResult: block if the leftover buffer trips a rule/toxicity,
+            otherwise allow with the full accumulated text.
         """
-        # Stub for post-factum analysis (to be implemented in Prompt 6)
-        # For now, just return allow with accumulated text
+        if self._blocked:
+            return InspectResult.block(
+                BlockDecision(reason="already_blocked"),
+                accumulated_text=self.accumulated_text,
+            )
+
+        # Flush any tokens still sitting in the buffer.
+        result = await self._run_checks()
+        if result.blocked:
+            return result
+
+        # Schedule post-factum deep analysis in the background (Prompt 6 will
+        # supply the real hook; default is a no-op with a log line).
+        if self.post_factum_hook is not None:
+            full_text = self.accumulated_text
+
+            async def _run_post_factum() -> None:
+                try:
+                    await asyncio.wait_for(
+                        self.post_factum_hook(full_text),
+                        timeout=POST_FACTUM_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "post_factum_timeout",
+                        timeout_seconds=POST_FACTUM_TIMEOUT_SECONDS,
+                    )
+                except Exception as exc:  # noqa: BLE001 — never crash the stream
+                    logger.warning("post_factum_error", error=str(exc))
+
+            asyncio.create_task(_run_post_factum())
+
         return InspectResult.allow(accumulated_text=self.accumulated_text)
 
     def get_prompt_hash(self) -> str:

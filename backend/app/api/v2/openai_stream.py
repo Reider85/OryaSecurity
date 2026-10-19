@@ -18,6 +18,7 @@ from app.core.metrics import (
 from app.core.pdp import scan_text
 from app.core.proxy import LLMProxyError, _build_forward_payload, _extract_prompt_text
 from app.core.rate_limit import RateLimiter
+from app.core.detectors.toxicity import ToxicityDetector
 from app.core.streaming.inspector import StreamingInspector
 from app.core.streaming.sse import format_sse, sse_response_headers, scanner_blocked_event
 from app.models.openai import ChatCompletionRequest
@@ -153,7 +154,10 @@ async def chat_completions_stream(
     ).inc()
     
     # Create streaming inspector
-    inspector = StreamingInspector()
+    inspector = StreamingInspector(
+        chunk_size=settings.streaming_chunk_size,
+        toxicity_detector=ToxicityDetector(threshold=settings.toxicity_threshold),
+    )
     
     # Start streaming response
     return StreamingResponse(

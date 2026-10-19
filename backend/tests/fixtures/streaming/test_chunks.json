@@ -1,0 +1,10 @@
+[
+  {"chunk": "Hello", "expect_block": false},
+  {"chunk": " my", "expect_block": false},
+  {"chunk": " SSN", "expect_block": false},
+  {"chunk": " is", "expect_block": false},
+  {"chunk": " 123", "expect_block": false},
+  {"chunk": "-45", "expect_block": false},
+  {"chunk": "-6789", "expect_block": false},
+  {"chunk": ".", "expect_block": false}
+]

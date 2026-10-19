@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     rules_dir: str = "rules"
 
+    streaming_chunk_size: int = 8
+    toxicity_threshold: float = 0.7
+
     log_level: str = "INFO"
 
     model_config = {"env_prefix": "SCANNER_"}

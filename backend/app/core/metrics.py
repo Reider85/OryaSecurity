@@ -72,6 +72,18 @@ scanner_uptime_seconds = Gauge(
     "Application uptime in seconds",
 )
 
+# Streaming metrics
+scanner_stream_chunks_total = Counter(
+    "scanner_stream_chunks_total",
+    "Total streamed chunks inspected",
+)
+
+scanner_stream_blocks_total = Counter(
+    "scanner_stream_blocks_total",
+    "Total streamed chunks blocked",
+    labelnames=["reason_type"],
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -93,3 +105,5 @@ def init_metrics() -> None:
     scanner_requests_total.clear()
     scanner_rules_matched_total.clear()
     scanner_uptime_seconds.set(0)
+    scanner_stream_chunks_total.clear()
+    scanner_stream_blocks_total.clear()
