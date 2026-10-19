@@ -6,15 +6,15 @@ import structlog
 from typing import Any, Awaitable, Callable, Optional
 
 from app.core.metrics import scanner_stream_blocks_total, scanner_stream_chunks_total
-from app.core.pdp import decide, scan_text
+from app.core.pdp import decide
+from app.core.detectors.streaming_rules import match_on_buffer, DEFAULT_PREV_TAIL_SIZE
 from app.core.streaming.types import BlockDecision, InspectResult
 
 logger = structlog.get_logger()
 
 # Default number of "tokens" (inspect_chunk calls) buffered before running checks.
 DEFAULT_CHUNK_SIZE = 8
-# Number of trailing characters from the previous buffer reused for boundary detection.
-DEFAULT_PREV_TAIL_SIZE = 20
+
 # Timeout for async post-factum deep analysis.
 POST_FACTUM_TIMEOUT_SECONDS = 5.0
 
@@ -83,7 +83,8 @@ class StreamingInspector:
         inspection_text = self.prev_tail + joined
 
         # Fast regex check (PII, secrets) with boundary support via prev_tail.
-        matches, _ = scan_text(inspection_text)
+        # Use dedicated streaming_rules module to avoid duplicate matches from prev_tail
+        matches = match_on_buffer(joined, self.prev_tail)
 
         if matches:
             verdict = decide(matches)
@@ -174,5 +175,6 @@ class StreamingInspector:
 
     def get_matches(self) -> list[dict[str, Any]]:
         """Get all matches from accumulated text."""
-        matches, _ = scan_text(self.accumulated_text)
+        # Use streaming_rules with empty prev_tail to scan full accumulated text
+        matches = match_on_buffer(self.accumulated_text, "")
         return [m.to_dict() for m in matches]
