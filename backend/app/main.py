@@ -25,6 +25,7 @@ from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
 from app.core.bootstrap import ensure_bootstrap_api_keys
 from app.core.metrics import scanner_uptime_seconds, python_info
+from app.core.detectors import get_shared_toxicity_detector
 import time
 import sys
 import platform
@@ -60,10 +61,13 @@ app.add_middleware(ScannerHeadersMiddleware)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database, Redis, and ensure bootstrap API keys on startup."""
+    """Initialize database, Redis, ensure bootstrap API keys, and ML models on startup."""
     await init_db()
     await init_redis()
     await ensure_bootstrap_api_keys()
+    
+    # Initialize toxicity model (with fallback if files missing)
+    await init_toxicity_model()
     
     # Initialize uptime and Python info metrics
     scanner_uptime_seconds.set(time.time())
@@ -94,3 +98,43 @@ app.include_router(v1_cache_router)
 app.include_router(v1_auth_router)
 app.include_router(v1_decisions_router)
 app.include_router(v1_charts_router)
+
+
+async def init_toxicity_model():
+    """Initialize the toxicity model with graceful fallback."""
+    try:
+        from app.ml.models.toxicity_model import load_toxicity_model
+        
+        # Try to load the ML model
+        load_toxicity_model(
+            model_path=settings.toxicity_model_path,
+            tokenizer_path=settings.toxicity_tokenizer_path,
+            max_length=settings.toxicity_model_max_length,
+        )
+        
+        # Verify model loaded successfully
+        detector = get_shared_toxicity_detector()
+        if detector is None:
+            raise RuntimeError("Model loaded but detector not created")
+            
+        logger.info("toxicity_model_loaded", model_path=settings.toxicity_model_path)
+        
+    except FileNotFoundError:
+        logger.warning(
+            "toxicity_model_missing",
+            model_path=settings.toxicity_model_path,
+            tokenizer_path=settings.toxicity_tokenizer_path,
+            fallback="heuristic"
+        )
+    except ImportError as e:
+        logger.warning(
+            "toxicity_model_deps_missing",
+            error=str(e),
+            fallback="heuristic"
+        )
+    except Exception as e:
+        logger.error(
+            "toxicity_model_load_failed",
+            error=str(e),
+            fallback="heuristic"
+        )

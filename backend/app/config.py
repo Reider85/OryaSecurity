@@ -39,6 +39,11 @@ class Settings(BaseSettings):
 
     streaming_chunk_size: int = 8
     toxicity_threshold: float = 0.7
+    
+    # ML toxicity model paths
+    toxicity_model_path: str = "ml-models/toxicity/model_int8.onnx"
+    toxicity_tokenizer_path: str = "ml-models/toxicity"
+    toxicity_model_max_length: int = 64
 
     log_level: str = "INFO"
 

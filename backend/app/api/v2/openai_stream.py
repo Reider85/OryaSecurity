@@ -18,7 +18,7 @@ from app.core.metrics import (
 from app.core.pdp import scan_text
 from app.core.proxy import LLMProxyError, _build_forward_payload, _extract_prompt_text
 from app.core.rate_limit import RateLimiter
-from app.core.detectors.toxicity import ToxicityDetector
+from app.core.detectors import get_shared_toxicity_detector
 from app.core.streaming.inspector import StreamingInspector
 from app.core.streaming.sse import format_sse, sse_response_headers, scanner_blocked_event
 from app.models.openai import ChatCompletionRequest
@@ -153,10 +153,16 @@ async def chat_completions_stream(
         tenant_id=auth_info.tenant_id or settings.default_tenant_id or "unknown",
     ).inc()
     
-    # Create streaming inspector
+    # Create streaming inspector (use shared detector instance)
+    shared_detector = get_shared_toxicity_detector()
+    if shared_detector is None:
+        # Fallback: create detector per-request (should not happen in normal operation)
+        logger.warning("toxicity_detector_missing_per_request")
+        shared_detector = ToxicityDetector(threshold=settings.toxicity_threshold)
+    
     inspector = StreamingInspector(
         chunk_size=settings.streaming_chunk_size,
-        toxicity_detector=ToxicityDetector(threshold=settings.toxicity_threshold),
+        toxicity_detector=shared_detector,
     )
     
     # Start streaming response

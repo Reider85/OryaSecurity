@@ -34,3 +34,8 @@ frontend/out/
 
 # Tools (local Node.js)
 tools/
+
+# ML model binaries
+ml-models/**/*.onnx
+ml-models/**/*.bin
+ml-models/**/*.data
