@@ -172,7 +172,7 @@ class TritonEmbeddingClient:
         try:
             # Tokenize all texts
             loop = asyncio.get_running_loop()
-            tokenized_list = await loop.run_in_executor(None, lambda: list([self._tokenize_sync, text] for text in texts))
+            tokenized_list = await loop.run_in_executor(None, lambda: [self._tokenize_sync(text) for text in texts])
 
             # Batch them (simple batching, no padding optimization)
             batch_size = len(texts)

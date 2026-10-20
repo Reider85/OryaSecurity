@@ -5,8 +5,14 @@ __version__ = "0.1.0"
 # Triton client (EP-08)
 from .triton_client import TritonEmbeddingClient, get_shared_triton_embedding_client, set_shared_triton_embedding_client
 
+# Embedding batcher (EP-08)
+from .batcher import EmbeddingBatcher, get_shared_embedding_batcher, set_shared_embedding_batcher
+
 __all__ = [
     "TritonEmbeddingClient",
     "get_shared_triton_embedding_client", 
     "set_shared_triton_embedding_client",
+    "EmbeddingBatcher",
+    "get_shared_embedding_batcher",
+    "set_shared_embedding_batcher",
 ]

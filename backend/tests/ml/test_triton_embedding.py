@@ -295,3 +295,65 @@ class TestTritonEmbeddingIntegration:
                 assert callable(client.embed)
                 assert callable(client.embed_batch)
                 assert isinstance(client.available, bool)
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_success(self):
+        """Test successful batch embedding."""
+        texts = ["test text 1", "test text 2", "test text 3"]
+        expected_embeddings = [np.random.rand(1024).astype(np.float32) for _ in texts]
+        
+        with patch('app.ml.triton_client.grpcclient.InferenceServerClient') as mock_client:
+            mock_client.return_value.is_server_live.return_value = True
+            mock_client.return_value.is_model_ready.return_value = True
+            
+            with patch('app.ml.triton_client.AutoTokenizer') as mock_tokenizer:
+                mock_tokenizer.from_pretrained.return_value = MagicMock()
+                mock_tokenizer.return_value = {
+                    'input_ids': np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]]),
+                    'attention_mask': np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])
+                }
+                
+                client = TritonEmbeddingClient(
+                    triton_url="localhost:8001",
+                    model_name="multilingual_e5",
+                    tokenizer_path="fake_tokenizer"
+                )
+                
+                # Mock the infer call to return expected embeddings
+                mock_results = MagicMock()
+                mock_results.as_numpy.return_value = np.array([emb.reshape(1, 3, 1024) for emb in expected_embeddings])
+                mock_client.return_value.infer.return_value = mock_results
+                
+                embeddings = await client.embed_batch(texts)
+                
+                # Verify all embeddings were processed
+                assert len(embeddings) == len(texts)
+                assert all(embedding is not None for embedding in embeddings)
+                
+                # Verify infer was called once with batch size 3
+                mock_client.return_value.infer.assert_called_once()
+                call_args = mock_client.return_value.infer.call_args
+                assert call_args[1]['inputs'][0].shape[0] == 3  # batch size
+                
+                # Verify embeddings are returned in correct order
+                for i, embedding in enumerate(embeddings):
+                    assert embedding.shape == (1024,)
+                    # Note: exact values would require more complex mocking of _pool_and_norm
+
+    @pytest.mark.asyncio
+    async def test_embed_batch_unavailable(self):
+        """Test batch embedding when Triton is unavailable."""
+        with patch('app.ml.triton_client.grpcclient.InferenceServerClient') as mock_client:
+            mock_client.return_value.is_server_live.return_value = False
+            
+            client = TritonEmbeddingClient(
+                triton_url="localhost:8001",
+                model_name="multilingual_e5",
+                tokenizer_path="fake_tokenizer"
+            )
+            
+            embeddings = await client.embed_batch(["test text 1", "test text 2"])
+            
+            # Should return None for all texts when unavailable
+            assert len(embeddings) == 2
+            assert all(embedding is None for embedding in embeddings)
