@@ -12,7 +12,7 @@ from .ml_classifier import (
 )
 
 # Triton client (EP-08) - imported from ml package to avoid circular deps
-from ..ml.triton_client import TritonEmbeddingClient, get_shared_triton_embedding_client, set_shared_triton_embedding_client
+from ...ml.triton_client import TritonEmbeddingClient, get_shared_triton_embedding_client, set_shared_triton_embedding_client
 
 __all__ = [
     "ToxicityDetector",

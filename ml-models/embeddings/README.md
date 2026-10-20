@@ -15,59 +15,41 @@ This directory contains the ONNX-quantized multilingual-e5-large embedding model
 
 ```
 ml-models/embeddings/
-├── config.pbtxt              # Triton model configuration
-├── README.md                # This file
-├── 1/
-│   ├── model.onnx           # Main ONNX model (binary, git-lfs or external)
-│   ├── tokenizer.json       # Tokenizer configuration
-│   ├── special_tokens_map.json
-│   ├── config.json
-│   └── ...                  # Other tokenizer files
+├── config.pbtxt              # Triton model configuration (default)
+├── README.md                 # This file
+├── CPU/
+│   └── config.pbtxt          # Alternative config for CPU-only deployments
+└── 1/                        # Triton versioned layout
+    ├── model.onnx            # FP32 optimized ONNX (baseline; git-lfs/external)
+    ├── model_int8.onnx       # int8 dynamic quantized (CPU fallback)
+    ├── tokenizer.json        # Tokenizer configuration
+    ├── special_tokens_map.json
+    ├── tokenizer_config.json
+    └── ...                   # Other tokenizer files
 ```
 
 ## Obtaining the Model
 
-### Option 1: Export from HuggingFace (Prompt 8 approach)
+### Option 1: Export from HuggingFace (implemented — Prompt 8)
 
-Use `backend/app/ml/export_onnx_int8.py` (to be implemented in Prompt 8):
+Use `backend/app/ml/export_onnx_int8.py`:
 
 ```bash
-# Install dependencies
-pip install optimum transformers torch onnxruntime
+# Install export dependencies (torch + optimum + onnx)
+pip install -e "backend[export]"
 
-# Export script will generate:
-# - ml-models/embeddings/1/model.onnx
-# - tokenizer files
+# Export FP32 + int8, normalize the Triton I/O contract, validate
+# (mean cosine similarity vs FP32 on 100 test prompts > 0.95)
+cd backend
+python -m app.ml.export_onnx_int8
 ```
+
+See [docs/ml-model-export.md](../../docs/ml-model-export.md) for details.
 
 ### Option 2: Download pre-converted
 
-Download from HuggingFace Hub or CDN (model size ~280MB int8):
-
-```bash
-# Using git-lfs (if configured)
-git lfs install
-git lfs clone https://huggingface.co/intfloat/multilingual-e5-large ml-models/embeddings-temp
-cd ml-models/embeddings-temp
-python -m optimum.exporters.onnx --model . ../embeddings/1/model.onnx
-# Copy tokenizer files to embeddings/1/
-```
-
-### Option 3: Manual export
-
-```bash
-# Using optimum CLI
-optimum-cli export onnx \
-  --model intfloat/multilingual-e5-large \
-  ml-models/embeddings/1/model.onnx
-
-# Quantize to int8 (optional)
-optimum-cli quantize \
-  --mlperf \
-  --calibration-dataset calibration.txt \
-  ml-models/embeddings/1/model.onnx \
-  ml-models/embeddings/1/model_int8.onnx
-```
+Download pre-converted artifacts from the internal artifact store / CDN
+(int8 ~280 MB) into `1/`, including tokenizer files.
 
 ## Triton Integration
 
@@ -75,6 +57,14 @@ The model is served by NVIDIA Triton Inference Server with:
 - Dynamic batching (8, 16, 32 requests)
 - CPU execution (default for dev)
 - GPU execution (for production, see below)
+
+For CPU-only deployments serve the int8 model (Triton does not distinguish
+int8 vs FP32 — it is the same ONNX file, just smaller/faster on CPU):
+
+```bash
+cp ml-models/embeddings/1/model_int8.onnx ml-models/embeddings/1/model.onnx
+cp ml-models/embeddings/CPU/config.pbtxt ml-models/embeddings/config.pbtxt
+```
 
 ## Switching to GPU
 

@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     post_factum_flag_severity: str = "high"
 
     # Embedding model (multilingual-e5, ONNX int8)
-    embedding_model_path: str = "ml-models/embeddings/model_int8.onnx"
-    embedding_tokenizer_path: str = "ml-models/embeddings"
+    embedding_model_path: str = "ml-models/embeddings/1/model_int8.onnx"
+    embedding_tokenizer_path: str = "ml-models/embeddings/1"
     embedding_dim: int = 1024
     embedding_max_length: int = 512
 
