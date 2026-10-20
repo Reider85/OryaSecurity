@@ -11,6 +11,9 @@ from .ml_classifier import (
     set_shared_classifier,
 )
 
+# Triton client (EP-08) - imported from ml package to avoid circular deps
+from ..ml.triton_client import TritonEmbeddingClient, get_shared_triton_embedding_client, set_shared_triton_embedding_client
+
 __all__ = [
     "ToxicityDetector",
     "ToxicityResult",
@@ -29,4 +32,8 @@ __all__ = [
     "ClassificationResult",
     "get_shared_classifier",
     "set_shared_classifier",
+    # Triton client
+    "TritonEmbeddingClient",
+    "get_shared_triton_embedding_client", 
+    "set_shared_triton_embedding_client",
 ]

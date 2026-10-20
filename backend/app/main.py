@@ -164,14 +164,32 @@ def init_post_factum_stack():
     )
     from app.core.detectors.toxicity import get_shared_toxicity_detector
     from app.core.streaming.post_factum import set_post_factum_analyzer, PostFactumAnalyzer
-
-    embedding_client = EmbeddingClient(
-        model_path=settings.embedding_model_path,
-        tokenizer_path=settings.embedding_tokenizer_path,
-        embedding_dim=settings.embedding_dim,
-        max_length=settings.embedding_max_length,
+    from app.ml.triton_client import (
+        TritonEmbeddingClient,
+        set_shared_triton_embedding_client,
     )
-    set_shared_embedding_client(embedding_client if embedding_client.available else None)
+
+    # Choose embedding client: Triton if configured, else local ONNX
+    if settings.triton_url:
+        embedding_client = TritonEmbeddingClient(
+            triton_url=settings.triton_url,
+            model_name=settings.triton_model_name,
+            tokenizer_path=settings.embedding_tokenizer_path,
+            embedding_dim=settings.embedding_dim,
+            max_length=settings.embedding_max_length,
+            timeout_ms=settings.triton_timeout_ms,
+        )
+        set_shared_triton_embedding_client(embedding_client if embedding_client.available else None)
+        set_shared_embedding_client(embedding_client if embedding_client.available else None)
+    else:
+        embedding_client = EmbeddingClient(
+            model_path=settings.embedding_model_path,
+            tokenizer_path=settings.embedding_tokenizer_path,
+            embedding_dim=settings.embedding_dim,
+            max_length=settings.embedding_max_length,
+        )
+        set_shared_embedding_client(embedding_client if embedding_client.available else None)
+        set_shared_triton_embedding_client(None)  # Explicitly disable Triton
 
     vector_searcher = VectorSearcher(
         url=settings.qdrant_url,

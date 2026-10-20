@@ -1,0 +1,53 @@
+name: llm-security-scanner-alpha
+
+services:
+  # Existing MVP stack (included via reference)
+  # postgres, redis, scanner, ui, prometheus, grafana — defined in docker-compose.yml
+
+  # Triton Inference Server (EP-08/Prompt 7)
+  triton:
+    image: nvcr.io/nvidia/tritonserver:24.01-py3
+    restart: unless-stopped
+    command: tritonserver --model-repository=/models --strict-model-config=false
+    volumes:
+      - ./ml-models:/models:ro
+    environment:
+      # Optional: for GPU, uncomment device reservation below
+      # NVIDIA_VISIBLE_DEVICES: all
+    ports:
+      # HTTP (health, metrics) — avoid clash with scanner:8000
+      - "8005:8000"
+      # gRPC (inference) — scanner will use this
+      - "8006:8001"
+      # Metrics port (optional, for monitoring)
+      - "8007:8002"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/v2/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    # GPU device reservation (CPU by default for dev)
+    # For GPU: uncomment the deploy section below and remove the "kind: CPU" from ml-models/embeddings/config.pbtxt
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Future ALPHA services will be added here:
+  # qdrant (EP-09/Prompt 11)
+  # opa (EP-12/Prompt 25)
+  # vault (EP-13/Prompt 31)
+  # jaeger, loki, alertmanager (EP-15/Prompts 41, 42, 44)
+
+volumes:
+  # Reuse volumes from docker-compose.yml
+  pg_data:
+  redis_data:
+  grafana_data:
+  # New volumes for ALPHA services
+  # qdrant_data:
+  # vault_data:

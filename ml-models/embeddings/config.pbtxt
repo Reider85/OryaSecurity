@@ -1,0 +1,41 @@
+name: "multilingual_e5"
+platform: "onnxruntime_onnx"
+max_batch_size: 32
+input [
+  {
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [ -1 ]
+  }
+  {
+    name: "attention_mask"
+    data_type: TYPE_INT64
+    dims: [ -1 ]
+  }
+]
+output [
+  {
+    name: "last_hidden_state"
+    data_type: TYPE_FP32
+    dims: [ -1, 1024 ]
+  }
+]
+dynamic_batching {
+  preferred_batch_size: [ 8, 16, 32 ]
+  max_queue_delay_microseconds: 5000
+}
+instance_group [
+  {
+    # Default: KIND_CPU for dev (works everywhere)
+    # Switch to GPU for production:
+    #   - Change to: kind: KIND_GPU count: 1
+    #   - Enable nvidia device reservation in docker-compose.alpha.yml
+    kind: KIND_CPU
+    count: 1
+  }
+]
+# Optional: for GPU tuning
+# parameters {
+#   key: "CUBLAS_WORKSPACE_SIZE"
+#   value: "8192"
+# }
