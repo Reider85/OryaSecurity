@@ -103,6 +103,22 @@ scanner_post_factum_degraded_total = Counter(
     labelnames=["component"],  # embedding | vector_search | ml_classifier
 )
 
+# Embedding cache metrics (ADR-0015)
+scanner_embedding_cache_hits_total = Counter(
+    "scanner_embedding_cache_hits_total",
+    "Total embedding cache hits",
+)
+
+scanner_embedding_cache_lookups_total = Counter(
+    "scanner_embedding_cache_lookups_total",
+    "Total embedding cache lookups",
+)
+
+scanner_embedding_cache_size = Gauge(
+    "scanner_embedding_cache_size",
+    "Current number of entries in embedding cache",
+)
+
 # WebSocket notifications metrics
 scanner_ws_connections = Gauge(
     "scanner_ws_connections",

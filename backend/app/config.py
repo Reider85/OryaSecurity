@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     embedding_max_length: int = 512
 
+    # Embedding cache (Redis)
+    embedding_cache_ttl_seconds: int = 86400
+    embedding_cache_max_entries: int = 1_000_000
+
     # Triton Inference Server (optional, overrides local ONNX)
     triton_url: str | None = None  # e.g. "localhost:8001" or "triton:8001"
     triton_model_name: str = "multilingual_e5"

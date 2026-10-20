@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 import structlog
 
 from app.config import settings
+from app.core.cache_embedding import embedding_cache
 from app.core.metrics import (
     scanner_post_factum_degraded_total,
     scanner_post_factum_duration_seconds,
@@ -198,15 +199,25 @@ class PostFactumAnalyzer:
     async def _check_vector_search(
         self, text: str
     ) -> tuple[list[PostFactumFinding], Optional[Any]]:
-        embedding_client = self._get_embedding_client()
-        if embedding_client is None or not getattr(embedding_client, "available", False):
-            scanner_post_factum_degraded_total.labels(component="embedding").inc()
-            return [], None
+        # Try cache first
+        embedding = await embedding_cache.get(text)
+        if embedding is not None:
+            # Cache hit - use cached embedding
+            pass
+        else:
+            # Cache miss - get from embedding client
+            embedding_client = self._get_embedding_client()
+            if embedding_client is None or not getattr(embedding_client, "available", False):
+                scanner_post_factum_degraded_total.labels(component="embedding").inc()
+                return [], None
 
-        embedding = await embedding_client.embed(text)
-        if embedding is None:
-            scanner_post_factum_degraded_total.labels(component="embedding").inc()
-            return [], None
+            embedding = await embedding_client.embed(text)
+            if embedding is None:
+                scanner_post_factum_degraded_total.labels(component="embedding").inc()
+                return [], None
+            
+            # Store in cache
+            await embedding_cache.set(text, embedding)
 
         searcher = self._get_vector_searcher()
         if searcher is None:

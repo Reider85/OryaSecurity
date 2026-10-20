@@ -99,11 +99,10 @@ async def test_auth_headers(test_api_key: str):
 @pytest.fixture
 async def fake_redis():
     """Fake Redis client using fakeredis for unit tests."""
-    import fakeredis.aioredis
+    import fakeredis
     
-    # Create fake Redis server and client
-    server = fakeredis.FakeServer()
-    client = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    # Create fake Redis client
+    client = fakeredis.FakeRedis(decode_responses=True)
     
     yield client
     
