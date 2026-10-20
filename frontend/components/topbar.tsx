@@ -2,6 +2,7 @@
 
 import { LogOut, User } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -29,6 +30,7 @@ export function Topbar() {
           <User className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm">Admin</span>
         </div>
+        <NotificationCenter />
         <ThemeToggle />
         <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
           <LogOut className="h-4 w-4" />

@@ -37,6 +37,7 @@ structlog.configure(
         structlog.processors.JSONRenderer(),
     ],
 )
+logger = structlog.get_logger()
 
 app = FastAPI(
     title=settings.app_name,
@@ -68,6 +69,9 @@ async def startup_event():
     
     # Initialize toxicity model (with fallback if files missing)
     await init_toxicity_model()
+
+    # Initialize post-factum deep-analysis stack (Prompt 6)
+    init_post_factum_stack()
     
     # Initialize uptime and Python info metrics
     scanner_uptime_seconds.set(time.time())
@@ -138,3 +142,63 @@ async def init_toxicity_model():
             error=str(e),
             fallback="heuristic"
         )
+
+
+def init_post_factum_stack():
+    """Initialize embedding, vector search, ML classifier + PostFactumAnalyzer.
+
+    Every component degrades gracefully when model files or Qdrant are
+    unavailable: the corresponding analysis step is skipped at runtime.
+    """
+    from app.core.detectors.embedding import (
+        EmbeddingClient,
+        set_shared_embedding_client,
+    )
+    from app.core.detectors.vector_search import (
+        VectorSearcher,
+        set_shared_vector_searcher,
+    )
+    from app.core.detectors.ml_classifier import (
+        PromptClassifier,
+        set_shared_classifier,
+    )
+    from app.core.detectors.toxicity import get_shared_toxicity_detector
+    from app.core.streaming.post_factum import set_post_factum_analyzer, PostFactumAnalyzer
+
+    embedding_client = EmbeddingClient(
+        model_path=settings.embedding_model_path,
+        tokenizer_path=settings.embedding_tokenizer_path,
+        embedding_dim=settings.embedding_dim,
+        max_length=settings.embedding_max_length,
+    )
+    set_shared_embedding_client(embedding_client if embedding_client.available else None)
+
+    vector_searcher = VectorSearcher(
+        url=settings.qdrant_url,
+        collection=settings.qdrant_collection,
+        top_k=settings.qdrant_top_k,
+    )
+    set_shared_vector_searcher(vector_searcher)
+
+    classifier = PromptClassifier(
+        model_path=settings.classifier_model_path,
+        tokenizer_path=settings.classifier_tokenizer_path,
+        max_length=settings.classifier_max_length,
+        flag_threshold=settings.classifier_flag_threshold,
+    )
+    set_shared_classifier(classifier if classifier.available else None)
+
+    set_post_factum_analyzer(
+        PostFactumAnalyzer(
+            embedding_client=embedding_client if embedding_client.available else None,
+            vector_searcher=vector_searcher,
+            classifier=classifier if classifier.available else None,
+            toxicity_detector=get_shared_toxicity_detector(),
+        )
+    )
+    logger.info(
+        "post_factum_stack_initialized",
+        embedding_available=embedding_client.available,
+        classifier_available=classifier.available,
+        qdrant_url=settings.qdrant_url,
+    )

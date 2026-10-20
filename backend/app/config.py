@@ -39,11 +39,37 @@ class Settings(BaseSettings):
 
     streaming_chunk_size: int = 8
     toxicity_threshold: float = 0.7
-    
+
     # ML toxicity model paths
     toxicity_model_path: str = "ml-models/toxicity/model_int8.onnx"
     toxicity_tokenizer_path: str = "ml-models/toxicity"
     toxicity_model_max_length: int = 64
+
+    # Post-factum deep analysis (Prompt 6)
+    post_factum_enabled: bool = True
+    post_factum_timeout_seconds: float = 5.0
+    post_factum_flag_severity: str = "high"
+
+    # Embedding model (multilingual-e5, ONNX int8)
+    embedding_model_path: str = "ml-models/embeddings/model_int8.onnx"
+    embedding_tokenizer_path: str = "ml-models/embeddings"
+    embedding_dim: int = 1024
+    embedding_max_length: int = 512
+
+    # Qdrant vector search
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_collection: str = "prompt_attacks"
+    qdrant_top_k: int = 10
+    vector_match_threshold: float = 0.90
+
+    # ML classifier (DeBERTa-v3-small, ONNX int8)
+    classifier_model_path: str = "ml-models/classifier/v1/model_int8.onnx"
+    classifier_tokenizer_path: str = "ml-models/classifier/v1"
+    classifier_max_length: int = 512
+    classifier_flag_threshold: float = 0.85
+
+    # WebSocket notifications for SecOps UI
+    ws_notifications_enabled: bool = True
 
     log_level: str = "INFO"
 

@@ -79,6 +79,7 @@ export interface AuditEventResponse {
   prompt_hash: string;
   prompt_text_redacted: string;
   verdict: string;
+  severity: string | null;
   reason: string;
   rules_matched: Array<{ rule_id: string; position: number }>;
   latency_ms: number;

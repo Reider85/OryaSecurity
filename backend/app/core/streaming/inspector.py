@@ -5,6 +5,7 @@ import hashlib
 import structlog
 from typing import Any, Awaitable, Callable, Optional
 
+from app.config import settings
 from app.core.metrics import scanner_stream_blocks_total, scanner_stream_chunks_total
 from app.core.pdp import decide
 from app.core.detectors.streaming_rules import match_on_buffer, DEFAULT_PREV_TAIL_SIZE
@@ -15,7 +16,7 @@ logger = structlog.get_logger()
 # Default number of "tokens" (inspect_chunk calls) buffered before running checks.
 DEFAULT_CHUNK_SIZE = 8
 
-# Timeout for async post-factum deep analysis.
+# Fallback timeout for async post-factum deep analysis (settings override it).
 POST_FACTUM_TIMEOUT_SECONDS = 5.0
 
 
@@ -146,21 +147,21 @@ class StreamingInspector:
         if result.blocked:
             return result
 
-        # Schedule post-factum deep analysis in the background (Prompt 6 will
-        # supply the real hook; default is a no-op with a log line).
+        # Schedule post-factum deep analysis in the background (Prompt 6).
         if self.post_factum_hook is not None:
             full_text = self.accumulated_text
+            timeout = settings.post_factum_timeout_seconds or POST_FACTUM_TIMEOUT_SECONDS
 
             async def _run_post_factum() -> None:
                 try:
                     await asyncio.wait_for(
                         self.post_factum_hook(full_text),
-                        timeout=POST_FACTUM_TIMEOUT_SECONDS,
+                        timeout=timeout,
                     )
                 except asyncio.TimeoutError:
                     logger.warning(
                         "post_factum_timeout",
-                        timeout_seconds=POST_FACTUM_TIMEOUT_SECONDS,
+                        timeout_seconds=timeout,
                     )
                 except Exception as exc:  # noqa: BLE001 — never crash the stream
                     logger.warning("post_factum_error", error=str(exc))

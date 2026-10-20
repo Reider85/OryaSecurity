@@ -46,6 +46,7 @@ export function AuditFilters({ onApply, onReset, onExport }: AuditFiltersProps) 
     { value: "", label: "All" },
     { value: "allow", label: "Allow" },
     { value: "block", label: "Block" },
+    { value: "post_factum_flag", label: "Post-factum flag" },
   ];
 
   return (

@@ -63,7 +63,26 @@ export function AuditTable({ data, total, page, perPage, onPageChange }: AuditTa
         const verdict = getValue() as string;
         return (
           <Badge variant={verdict === "allow" ? "default" : "destructive"}>
-            {verdict.toUpperCase()}
+            {verdict === "post_factum_flag" ? "POST-FACTUM" : verdict.toUpperCase()}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: "severity",
+      header: "Severity",
+      cell: ({ getValue }) => {
+        const severity = getValue() as string | null;
+        if (!severity) return "-";
+        const variant =
+          severity === "critical"
+            ? "destructive"
+            : severity === "high" || severity === "medium"
+              ? "warning"
+              : "secondary";
+        return (
+          <Badge variant={variant as "secondary" | "warning" | "destructive"} className="uppercase">
+            {severity}
           </Badge>
         );
       },

@@ -31,7 +31,10 @@ class AuditEvent(Base):
 
     __tablename__ = "audit_events"
     __table_args__ = (
-        CheckConstraint("verdict IN ('allow', 'block')", name="ck_audit_events_verdict"),
+        CheckConstraint(
+            "verdict IN ('allow', 'block', 'post_factum_flag')",
+            name="ck_audit_events_verdict",
+        ),
         Index("ix_audit_events_tenant_ts", "tenant_id", text("ts DESC")),
         Index("ix_audit_events_prompt_hash", "prompt_hash"),
         Index("ix_audit_events_verdict", "verdict"),
@@ -46,6 +49,7 @@ class AuditEvent(Base):
     prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     prompt_text_redacted: Mapped[str | None] = mapped_column(Text, nullable=True)
     verdict: Mapped[str] = mapped_column(String(16), nullable=False)
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     rules_matched: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"

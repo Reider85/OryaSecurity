@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 
@@ -19,7 +20,9 @@ from app.core.pdp import scan_text
 from app.core.proxy import LLMProxyError, _build_forward_payload, _extract_prompt_text
 from app.core.rate_limit import RateLimiter
 from app.core.detectors import get_shared_toxicity_detector
+from app.core.detectors.toxicity import ToxicityDetector
 from app.core.streaming.inspector import StreamingInspector
+from app.core.streaming.post_factum import get_post_factum_analyzer
 from app.core.streaming.sse import format_sse, sse_response_headers, scanner_blocked_event
 from app.models.openai import ChatCompletionRequest
 
@@ -159,10 +162,26 @@ async def chat_completions_stream(
         # Fallback: create detector per-request (should not happen in normal operation)
         logger.warning("toxicity_detector_missing_per_request")
         shared_detector = ToxicityDetector(threshold=settings.toxicity_threshold)
-    
+
+    # Async post-factum deep analysis hook (Prompt 6): runs in the background
+    # after the stream completes; never blocks or retracts shown content.
+    post_factum_hook = None
+    if settings.post_factum_enabled:
+        analyzer = get_post_factum_analyzer()
+        stream_request_id = request_id
+        stream_tenant_id = auth_info.tenant_id or settings.default_tenant_id
+
+        async def post_factum_hook(text: str) -> None:
+            await analyzer.analyze(
+                text,
+                request_id=stream_request_id,
+                tenant_id=stream_tenant_id,
+            )
+
     inspector = StreamingInspector(
         chunk_size=settings.streaming_chunk_size,
         toxicity_detector=shared_detector,
+        post_factum_hook=post_factum_hook,
     )
     
     # Start streaming response
@@ -222,8 +241,8 @@ async def generate_stream(
                         
                         # Parse JSON chunk
                         try:
-                            chunk_data = eval(data_str)  # Simple JSON parse for demo; use json.loads for production
-                        except:
+                            chunk_data = json.loads(data_str)
+                        except (json.JSONDecodeError, ValueError):
                             # Skip malformed chunks
                             continue
                         

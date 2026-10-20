@@ -24,6 +24,7 @@ def write_audit_event(
     rules_matched: list[dict],
     latency_ms: float,
     metadata: dict | None = None,
+    severity: str | None = None,
 ) -> None:
     logger.info(
         "audit_event",
@@ -31,6 +32,7 @@ def write_audit_event(
         tenant_id=tenant_id,
         prompt_hash=prompt_hash,
         verdict=verdict,
+        severity=severity,
         reason=reason,
         rules_matched_count=len(rules_matched),
         latency_ms=round(latency_ms, 2),
@@ -74,6 +76,7 @@ async def write_event(
     policy_version: str | None = None,
     latency_ms: float | None = None,
     metadata: dict | None = None,
+    severity: str | None = None,
 ) -> AuditEvent | None:
     """Persist a scan decision to the audit log.
 
@@ -90,6 +93,7 @@ async def write_event(
         prompt_hash=prompt_hash,
         prompt_text_redacted=prompt_text_redacted,
         verdict=verdict,
+        severity=severity,
         reason=reason,
         rules_matched=_normalize_rules(rules_matched),
         policy_version=policy_version or settings.policy_version,
@@ -115,6 +119,7 @@ async def write_event(
         tenant_id=event.tenant_id,
         prompt_hash=event.prompt_hash,
         verdict=event.verdict,
+        severity=event.severity,
         reason=event.reason or "",
         rules_matched=event.rules_matched,
         latency_ms=event.latency_ms or 0.0,
@@ -132,6 +137,7 @@ def _serialize(event: AuditEvent) -> dict[str, Any]:
         "prompt_hash": event.prompt_hash,
         "prompt_text_redacted": event.prompt_text_redacted,
         "verdict": event.verdict,
+        "severity": event.severity,
         "reason": event.reason,
         "rules_matched": event.rules_matched or [],
         "policy_version": event.policy_version,

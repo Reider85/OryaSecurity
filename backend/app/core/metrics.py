@@ -84,6 +84,37 @@ scanner_stream_blocks_total = Counter(
     labelnames=["reason_type"],
 )
 
+# Post-factum deep analysis metrics (Prompt 6)
+scanner_post_factum_total = Counter(
+    "scanner_post_factum_total",
+    "Total post-factum analyses by outcome",
+    labelnames=["outcome"],  # flagged | clean | error
+)
+
+scanner_post_factum_duration_seconds = Histogram(
+    "scanner_post_factum_duration_seconds",
+    "Post-factum analysis latency in seconds",
+    buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0],
+)
+
+scanner_post_factum_degraded_total = Counter(
+    "scanner_post_factum_degraded_total",
+    "Post-factum deep-analysis calls skipped due to unavailable components",
+    labelnames=["component"],  # embedding | vector_search | ml_classifier
+)
+
+# WebSocket notifications metrics
+scanner_ws_connections = Gauge(
+    "scanner_ws_connections",
+    "Current number of active WebSocket notification connections",
+)
+
+scanner_ws_notifications_total = Counter(
+    "scanner_ws_notifications_total",
+    "Total WebSocket notifications broadcast",
+    labelnames=["type"],
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -107,3 +138,7 @@ def init_metrics() -> None:
     scanner_uptime_seconds.set(0)
     scanner_stream_chunks_total.clear()
     scanner_stream_blocks_total.clear()
+    scanner_post_factum_total.clear()
+    scanner_post_factum_degraded_total.clear()
+    scanner_ws_connections.set(0)
+    scanner_ws_notifications_total.clear()
