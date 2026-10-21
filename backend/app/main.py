@@ -23,6 +23,7 @@ from app.api.v1 import (
 from app.core.headers import ScannerHeadersMiddleware
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
+from app.db.qdrant_client import init_qdrant, close_qdrant
 from app.core.bootstrap import ensure_bootstrap_api_keys
 from app.core.metrics import scanner_uptime_seconds, python_info
 from app.core.detectors import get_shared_toxicity_detector
@@ -62,9 +63,10 @@ app.add_middleware(ScannerHeadersMiddleware)
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database, Redis, ensure bootstrap API keys, and ML models on startup."""
+    """Initialize database, Redis, Qdrant, ensure bootstrap API keys, and ML models on startup."""
     await init_db()
     await init_redis()
+    await init_qdrant()  # Non-fatal initialization (graceful degradation if Qdrant unavailable)
     await ensure_bootstrap_api_keys()
     
     # Initialize toxicity model (with fallback if files missing)
@@ -84,7 +86,8 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Close Redis and database connections on shutdown."""
+    """Close Qdrant, Redis, and database connections on shutdown."""
+    await close_qdrant()
     await close_redis()
     await close_db()
 
