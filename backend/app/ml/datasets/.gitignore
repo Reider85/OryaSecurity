@@ -1,0 +1,11 @@
+# Generated datasets
+*.json
+*.csv
+*.jsonl
+augmented_*.json
+advbench.json
+jailbreakbench.json
+
+# Downloaded originals
+harmful_behaviors.csv
+jailbreak_behaviors.jsonl

@@ -69,7 +69,14 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "prompt_attacks"
     qdrant_top_k: int = 10
+    qdrant_ef_search: int = 64
     vector_match_threshold: float = 0.90
+
+    # Qdrant seed collection (Prompt 12)
+    seed_target_count: int = 10_000
+    seed_batch_size: int = 256
+    advbench_dataset_path: str = "backend/app/ml/datasets/advbench.json"
+    jailbreakbench_dataset_path: str = "backend/app/ml/datasets/jailbreakbench.json"
 
     # ML classifier (DeBERTa-v3-small, ONNX int8)
     classifier_model_path: str = "ml-models/classifier/v1/model_int8.onnx"
