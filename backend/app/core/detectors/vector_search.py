@@ -3,6 +3,7 @@ from __future__ import annotations
 import structlog
 from dataclasses import dataclass, field
 from typing import Any, Optional
+import time
 
 import numpy as np
 
@@ -32,12 +33,14 @@ class VectorSearcher:
         collection: str,
         top_k: int = 10,
         timeout: float = 2.0,
+        ef_search: Optional[int] = None,
         qdrant_client: Any = None,
     ):
         self.url = url
         self.collection = collection
         self.top_k = top_k
         self.timeout = timeout
+        self.ef_search = ef_search
         self._client = qdrant_client
         self._client_owned = qdrant_client is None
 
@@ -58,9 +61,10 @@ class VectorSearcher:
         top_k: Optional[int] = None,
     ) -> list[SearchResult]:
         """Search for similar attack vectors. Returns [] on any failure."""
-        from app.core.metrics import scanner_post_factum_degraded_total
+        from app.core.metrics import scanner_post_factum_degraded_total, scanner_vector_search_duration_seconds
 
         limit = top_k or self.top_k
+        start_time = time.monotonic()
         try:
             client = self._get_client()
             response = await client.query_points(
@@ -78,8 +82,10 @@ class VectorSearcher:
                         payload=dict(point.payload or {}),
                     )
                 )
+            scanner_vector_search_duration_seconds.observe(time.monotonic() - start_time)
             return results
         except Exception as exc:  # noqa: BLE001 — degrade, never break the caller
+            scanner_vector_search_duration_seconds.observe(time.monotonic() - start_time)
             scanner_post_factum_degraded_total.labels(component="vector_search").inc()
             logger.warning(
                 "vector_search_degraded",

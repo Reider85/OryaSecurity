@@ -198,6 +198,7 @@ def init_post_factum_stack():
         url=settings.qdrant_url,
         collection=settings.qdrant_collection,
         top_k=settings.qdrant_top_k,
+        ef_search=settings.qdrant_ef_search,
     )
     set_shared_vector_searcher(vector_searcher)
 

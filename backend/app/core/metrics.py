@@ -103,6 +103,13 @@ scanner_post_factum_degraded_total = Counter(
     labelnames=["component"],  # embedding | vector_search | ml_classifier
 )
 
+# Vector search SLO (Prompt 13): p99 < 30ms
+scanner_vector_search_duration_seconds = Histogram(
+    "scanner_vector_search_duration_seconds",
+    "Vector search latency in seconds",
+    buckets=[0.005, 0.01, 0.03, 0.05, 0.1, 0.5, 1.0],
+)
+
 # Embedding cache metrics (ADR-0015)
 scanner_embedding_cache_hits_total = Counter(
     "scanner_embedding_cache_hits_total",
