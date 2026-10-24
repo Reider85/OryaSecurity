@@ -60,6 +60,9 @@ services:
     restart: unless-stopped
     volumes:
       - qdrant2_data:/qdrant/storage
+    ports:
+      # HTTP API on loopback only — needed for per-node snapshots (qdrant_backup.sh)
+      - "127.0.0.1:6343:6333"
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__PEERS=qdrant1:6333,qdrant2:6333,qdrant3:6333
@@ -75,6 +78,9 @@ services:
     restart: unless-stopped
     volumes:
       - qdrant3_data:/qdrant/storage
+    ports:
+      # HTTP API on loopback only — needed for per-node snapshots (qdrant_backup.sh)
+      - "127.0.0.1:6353:6333"
     environment:
       - QDRANT__CLUSTER__ENABLED=true
       - QDRANT__CLUSTER__PEERS=qdrant1:6333,qdrant2:6333,qdrant3:6333
@@ -101,6 +107,40 @@ services:
       retries: 5
       start_period: 60s
 
+  # MinIO — S3-compatible storage for Qdrant snapshots (EP-09/Prompt 15)
+  minio:
+    image: minio/minio:RELEASE.2025-10-15T17-29-55Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"  # S3 API (used by backend/scripts/qdrant_backup.sh)
+      - "9001:9001"  # Web console
+    # No healthcheck: the image ships neither curl nor nc.
+    # Readiness is handled by minio-init (mc alias set retry loop).
+
+  # Creates the backup bucket on start (idempotent, exits 0)
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: on-failure
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-qdrant-backups}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do sleep 2; done;
+      mc mb --ignore-existing \"local/$$S3_BUCKET\";
+      echo \"[minio-init] bucket $$S3_BUCKET ready\";
+      "
+
   # Override scanner service to use Qdrant cluster
   scanner:
     environment:
@@ -124,4 +164,5 @@ volumes:
   qdrant2_data:
   qdrant3_data:
   qdrant_dev_data:
+  minio_data:
   # vault_data:
