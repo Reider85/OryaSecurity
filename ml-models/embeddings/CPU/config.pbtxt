@@ -1,0 +1,47 @@
+# Triton model config — CPU-only deployments (int8-quantized model)
+#
+# This is a drop-in alternative to ../config.pbtxt for CPU-only environments.
+# Triton does not distinguish int8 vs FP32 ONNX files, so for CPU deployments
+# serve the quantized model by replacing the versioned model file:
+#
+#   cp ml-models/embeddings/1/model_int8.onnx ml-models/embeddings/1/model.onnx
+#
+# then mount this file as ml-models/embeddings/config.pbtxt (or copy it over).
+# See docs/ml-model-export.md for details.
+name: "multilingual_e5"
+platform: "onnxruntime_onnx"
+max_batch_size: 32
+input [
+  {
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [ -1 ]
+  }
+  {
+    name: "attention_mask"
+    data_type: TYPE_INT64
+    dims: [ -1 ]
+  }
+]
+output [
+  {
+    name: "last_hidden_state"
+    data_type: TYPE_FP32
+    dims: [ -1, 1024 ]
+  }
+]
+dynamic_batching {
+  preferred_batch_size: [ 8, 16, 32 ]
+  max_queue_delay_microseconds: 5000
+}
+instance_group [
+  {
+    kind: KIND_CPU
+    count: 1
+  }
+]
+# CPU threading tuning (adjust to the host core count)
+parameters: {
+  key: "OMP_NUM_THREADS"
+  value: { string_value: "4" }
+}

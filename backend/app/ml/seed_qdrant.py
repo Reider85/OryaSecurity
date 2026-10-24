@@ -33,6 +33,7 @@ from app.config import settings
 from app.db.qdrant_client import get_qdrant
 from app.core.detectors.embedding import get_shared_embedding_client
 from app.core.detectors.vector_search import SearchResult
+from app.db.qdrant_setup import ensure_collection as _ensure_collection
 
 logger = structlog.get_logger()
 
@@ -246,87 +247,8 @@ class DatasetLoader:
         logger.info("dataset_deduplicated", original_count=len(prompts), unique_count=len(unique_prompts))
         return unique_prompts
 
-async def ensure_collection(client: AsyncQdrantClient, collection_name: str, force_recreate: bool = False) -> None:
-    """Ensure collection exists with correct configuration."""
-    try:
-        collection_info = await client.get_collection(collection_name)
-        logger.info("collection_exists", name=collection_name, points=collection_info.points_count)
-        
-        if force_recreate:
-            logger.info("recreating_collection", name=collection_name)
-            await client.delete_collection(collection_name)
-            await _create_collection(client, collection_name)
-        else:
-            # Verify configuration matches expected
-            config = collection_info.config
-            if (config.params.vectors.size != settings.embedding_dim or
-                config.params.vectors.distance != "Cosine" or
-                config.hnsw_config.m != 16 or
-                config.hnsw_config.ef_construct != 128 or
-                not config.quantization_config or
-                config.quantization_config.scalar.type != "int8"):
-                logger.warning("collection_config_mismatch", 
-                             name=collection_name,
-                             existing_size=config.params.vectors.size,
-                             expected_size=settings.embedding_dim,
-                             existing_distance=config.params.vectors.distance,
-                             expected_distance="Cosine",
-                             existing_m=config.hnsw_config.m,
-                             expected_m=16,
-                             existing_ef_construct=config.hnsw_config.ef_construct,
-                             expected_ef_construct=128,
-                             has_quantization=bool(config.quantization_config),
-                             quantization_type=config.quantization_config.scalar.type if config.quantization_config else None)
-                logger.info("forcing_collection_recreation", name=collection_name)
-                await client.delete_collection(collection_name)
-                await _create_collection(client, collection_name)
-            else:
-                logger.info("collection_config_correct", name=collection_name)
-                
-    except UnexpectedResponse as e:
-        if "not found" in str(e).lower():
-            logger.info("creating_collection", name=collection_name)
-            await _create_collection(client, collection_name)
-        else:
-            raise
-    
-    await _verify_collection_config(client, collection_name)
-
-async def _create_collection(client: AsyncQdrantClient, collection_name: str) -> None:
-    """Create collection with HNSW + scalar int8 quantization."""
-    await client.create_collection(
-        collection_name=collection_name,
-        vectors_config=models.VectorParams(
-            size=settings.embedding_dim,
-            distance="Cosine"
-        ),
-        hnsw_config=models.HnswConfigDiff(
-            m=16,
-            ef_construct=128,
-        ),
-        quantization_config=models.QuantizationConfig(
-            scalar=models.ScalarQuantization(
-                type=models.ScalarType.INT8,
-                quantile=0.99,
-                always_ram=True
-            )
-        )
-    )
-    logger.info("collection_created", name=collection_name)
-
-async def _verify_collection_config(client: AsyncQdrantClient, collection_name: str) -> None:
-    """Verify collection configuration after creation."""
-    collection_info = await client.get_collection(collection_name)
-    config = collection_info.config
-    
-    assert config.params.vectors.size == settings.embedding_dim, f"Vector size mismatch: {config.params.vectors.size}"
-    assert config.params.vectors.distance == "Cosine", f"Distance mismatch: {config.params.vectors.distance}"
-    assert config.hnsw_config.m == 16, f"HNSW m mismatch: {config.hnsw_config.m}"
-    assert config.hnsw_config.ef_construct == 128, f"HNSW ef_construct mismatch: {config.hnsw_config.ef_construct}"
-    assert config.quantization_config is not None, "Quantization config missing"
-    assert config.quantization_config.scalar.type == "int8", f"Quantization type mismatch: {config.quantization_config.scalar.type}"
-    
-    logger.info("collection_config_verified", name=collection_name)
+# ensure_collection now imported from qdrant_setup as _ensure_collection
+# _create_collection and _verify_collection_config moved to qdrant_setup.py
 
 async def get_existing_hashes(client: AsyncQdrantClient, collection_name: str) -> set[str]:
     """Get existing text_hash values from collection for resume support."""
@@ -452,7 +374,7 @@ async def seed_collection(
     logger.info("starting_seed", collection=collection_name, target_count=target_count)
     
     # 1. Ensure collection exists with correct config
-    await ensure_collection(client, collection_name, force_recreate)
+    await _ensure_collection(client, collection_name, force_recreate)
     
     # 2. Load datasets
     loader = DatasetLoader(target_count)

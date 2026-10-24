@@ -1,0 +1,30 @@
+# Large model artifacts - not committed to git
+*.safetensors
+*.onnx
+*.onnx_data
+*.bin
+*.pt
+*.pth
+*.h5
+*.hdf5
+
+# Training outputs
+training/
+runs/
+wandb/
+mlflow/
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Dataset files (large, generated)
+*.jsonl
+*.csv
+datasets/
+
+# Model checkpoints
+checkpoint-*/
+model_*.pt
+*.ckpt
