@@ -117,7 +117,9 @@ def load_dataset_splits(data_dir: Path, smoke: bool = False) -> Tuple[Dataset, D
                 data = [json.loads(line) for line in f]
             
             # Sample for smoke mode
-            datasets[split] = Dataset.from_list(data[:DEFAULT_SMOKE_SAMPLES])
+            # Filter to only text and label fields
+            filtered_data = [{'text': d['text'], 'label': d['label']} for d in data[:DEFAULT_SMOKE_SAMPLES]]
+            datasets[split] = Dataset.from_list(filtered_data)
     else:
         # Load full splits
         datasets = {}
@@ -255,7 +257,7 @@ def main():
         per_device_eval_batch_size=batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
-        warmup_ratio=0.1,
+        warmup_steps=500,
         weight_decay=0.01,
         logging_strategy="steps",
         logging_steps=50 if not args.smoke else 10,
@@ -278,7 +280,6 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        tokenizer=tokenizer,
         data_collator=None,
         compute_metrics=lambda p: compute_metrics(p.label_ids, p.predictions.argmax(-1), DEFAULT_CLASSES),
         class_weights=class_weights,
