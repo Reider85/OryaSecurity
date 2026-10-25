@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
@@ -10,7 +10,14 @@ from sqlalchemy.dialects import postgresql
 
 from app.config import settings
 from app.core import audit
-from app.core.audit import _coerce_request_id, _normalize_rules, write_event, query_events
+from app.core.audit import (
+    _coerce_request_id,
+    _normalize_explainability,
+    _normalize_rules,
+    update_event_explainability,
+    write_event,
+    query_events,
+)
 from app.db.models import AuditEvent
 
 
@@ -26,8 +33,9 @@ class FakeScalarResult:
 
 
 class FakeResult:
-    def __init__(self, rows):
+    def __init__(self, rows, rowcount: int = 0):
         self._rows = rows
+        self.rowcount = rowcount
 
     def scalars(self):
         return FakeScalarResult(self._rows)
@@ -36,12 +44,14 @@ class FakeResult:
 class FakeSession:
     """Minimal stand-in for AsyncSession."""
 
-    def __init__(self, rows=None, fail_on_flush=False):
+    def __init__(self, rows=None, fail_on_flush=False, fail_on_execute=False, rowcount=0):
         self.added: list[AuditEvent] = []
         self.executed: list = []
         self.closed = False
         self._rows = rows or []
         self._fail_on_flush = fail_on_flush
+        self._fail_on_execute = fail_on_execute
+        self._rowcount = rowcount
 
     def add(self, obj):
         self.added.append(obj)
@@ -60,8 +70,10 @@ class FakeSession:
         self.closed = True
 
     async def execute(self, stmt):
+        if self._fail_on_execute:
+            raise RuntimeError("connection refused")
         self.executed.append(stmt)
-        return FakeResult(self._rows)
+        return FakeResult(self._rows, rowcount=self._rowcount)
 
 
 def install_session(monkeypatch, session: FakeSession) -> FakeSession:
@@ -114,8 +126,20 @@ class TestModel:
         columns = AuditEvent.__table__.columns
         for name in ("ts", "request_id", "prompt_hash", "verdict", "rules_matched"):
             assert not columns[name].nullable, name
-        for name in ("tenant_id", "prompt_text_redacted", "reason", "policy_version", "latency_ms"):
+        for name in (
+            "tenant_id",
+            "prompt_text_redacted",
+            "reason",
+            "policy_version",
+            "latency_ms",
+            "explainability",
+        ):
             assert columns[name].nullable, name
+
+    def test_explainability_column_is_jsonb(self) -> None:
+        columns = AuditEvent.__table__.columns
+        pg = postgresql.dialect()
+        assert columns["explainability"].type.compile(dialect=pg) == "JSONB"
 
     def test_indexes(self) -> None:
         index_names = {idx.name for idx in AuditEvent.__table__.indexes}
@@ -410,3 +434,176 @@ class TestWriteAuditEvent:
         assert event["rules_matched_count"] == 2
         assert event["latency_ms"] == 1.23
         assert event["metadata"] == {"model": "gpt-test"}
+
+
+class TestNormalizeExplainability:
+    def test_none_stays_none(self) -> None:
+        assert _normalize_explainability(None) is None
+
+    def test_keeps_only_known_keys_and_coerces(self) -> None:
+        entries = [
+            {"token": "ignore", "shap_value": "0.5", "contribution": 0.25, "extra": 1}
+        ]
+        assert _normalize_explainability(entries) == [
+            {"token": "ignore", "shap_value": 0.5, "contribution": 0.25}
+        ]
+
+    def test_skips_entries_without_token(self) -> None:
+        entries = [
+            {"shap_value": 1.0, "contribution": 1.0},
+            {"token": "keep", "shap_value": 1.0, "contribution": 1.0},
+        ]
+        assert _normalize_explainability(entries) == [
+            {"token": "keep", "shap_value": 1.0, "contribution": 1.0}
+        ]
+
+    def test_missing_scores_default_to_zero(self) -> None:
+        assert _normalize_explainability([{"token": "x"}]) == [
+            {"token": "x", "shap_value": 0.0, "contribution": 0.0}
+        ]
+
+    def test_caps_entry_count(self) -> None:
+        entries = [{"token": f"t{i}"} for i in range(100)]
+        assert len(_normalize_explainability(entries)) == 50
+
+
+class TestWriteEventExplainability:
+    async def test_persists_normalized_explainability(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = install_session(monkeypatch, FakeSession())
+
+        event = await write_event(
+            request_id=uuid.uuid4(),
+            prompt_hash="a" * 64,
+            verdict="post_factum_flag",
+            explainability=[
+                {"token": "ignore", "shap_value": 0.42, "contribution": 0.6}
+            ],
+        )
+
+        assert event is not None
+        assert session.added[0].explainability == [
+            {"token": "ignore", "shap_value": 0.42, "contribution": 0.6}
+        ]
+
+    async def test_defaults_to_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        session = install_session(monkeypatch, FakeSession())
+
+        event = await write_event(
+            request_id=uuid.uuid4(),
+            prompt_hash="b" * 64,
+            verdict="allow",
+        )
+
+        assert session.added[0].explainability is None
+        assert event is not None
+
+
+class TestUpdateEventExplainability:
+    payload = [{"token": "ignore", "shap_value": 0.4, "contribution": 0.7}]
+
+    async def test_updates_existing_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        session = install_session(monkeypatch, FakeSession(rowcount=1))
+        request_id = uuid.uuid4()
+
+        updated = await update_event_explainability(
+            request_id=request_id, explainability=self.payload
+        )
+
+        assert updated is True
+        sql = str(session.executed[0])
+        assert "UPDATE audit_events" in sql
+        assert "explainability" in sql
+
+    async def test_no_matching_event_returns_false(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = install_session(monkeypatch, FakeSession(rowcount=0))
+
+        updated = await update_event_explainability(
+            request_id=uuid.uuid4(), explainability=self.payload
+        )
+
+        assert updated is False
+        assert len(session.executed) == 1
+
+    async def test_invalid_request_id_is_coerced(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_session(monkeypatch, FakeSession(rowcount=0))
+
+        updated = await update_event_explainability(
+            request_id="not-a-uuid", explainability=self.payload
+        )
+
+        assert updated is False
+
+    async def test_fails_open_on_db_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_session(monkeypatch, FakeSession(fail_on_execute=True))
+
+        with capture_logs() as events:
+            updated = await update_event_explainability(
+                request_id=uuid.uuid4(), explainability=self.payload
+            )
+
+        assert updated is False
+        warnings = [e for e in events if e["event"] == "audit_explainability_update_failed"]
+        assert len(warnings) == 1
+        assert warnings[0]["fail_open"] is True
+
+    async def test_disabled_audit_short_circuits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = install_session(monkeypatch, FakeSession(rowcount=1))
+        monkeypatch.setattr(settings, "audit_enabled", False)
+
+        updated = await update_event_explainability(
+            request_id=uuid.uuid4(), explainability=self.payload
+        )
+
+        assert updated is False
+        assert session.executed == []
+
+    async def test_success_logs_structlog_event(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_session(monkeypatch, FakeSession(rowcount=1))
+
+        with capture_logs() as events:
+            await update_event_explainability(
+                request_id=uuid.uuid4(), explainability=self.payload
+            )
+
+        assert any(e["event"] == "audit_explainability_updated" for e in events)
+
+
+class TestSerializeExplainability:
+    async def test_serialized_row_includes_explainability(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_session(
+            monkeypatch,
+            FakeSession(rows=[make_event(explainability=_payload())]),
+        )
+
+        rows = await query_events()
+
+        assert rows[0]["explainability"] == [
+            {"token": "ignore", "shap_value": 0.4, "contribution": 0.7}
+        ]
+
+    async def test_serialized_row_without_explainability(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_session(monkeypatch, FakeSession(rows=[make_event()]))
+
+        rows = await query_events()
+
+        assert rows[0]["explainability"] is None
+
+
+def _payload() -> list[dict]:
+    return [{"token": "ignore", "shap_value": 0.4, "contribution": 0.7}]

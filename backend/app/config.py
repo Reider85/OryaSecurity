@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     classifier_max_length: int = 512
     classifier_flag_threshold: float = 0.85
 
+    # SHAP explainability for classifier decisions (Prompt 19)
+    explainability_enabled: bool = True
+    explainability_top_k: int = 5
+    explainability_timeout_seconds: float = 10.0
+    explainability_max_length: int = 128
+    explainability_cache_max_entries: int = 512
+
     # WebSocket notifications for SecOps UI
     ws_notifications_enabled: bool = True
 

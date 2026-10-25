@@ -10,6 +10,12 @@ from .ml_classifier import (
     get_shared_classifier,
     set_shared_classifier,
 )
+from .classifier_explainability import (
+    ClassifierExplainer,
+    get_shared_explainer,
+    set_shared_explainer,
+    explain_classification,
+)
 
 # Triton client (EP-08) - imported from ml package to avoid circular deps
 from ...ml.triton_client import TritonEmbeddingClient, get_shared_triton_embedding_client, set_shared_triton_embedding_client
@@ -32,6 +38,10 @@ __all__ = [
     "ClassificationResult",
     "get_shared_classifier",
     "set_shared_classifier",
+    "ClassifierExplainer",
+    "get_shared_explainer",
+    "set_shared_explainer",
+    "explain_classification",
     # Triton client
     "TritonEmbeddingClient",
     "get_shared_triton_embedding_client", 

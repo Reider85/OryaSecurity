@@ -25,6 +25,13 @@ class RuleMatchResponse(BaseModel):
     value: Optional[str] = None
 
 
+class TokenContributionResponse(BaseModel):
+    """One SHAP-attributed token of a classification decision (Prompt 19)."""
+    token: str
+    shap_value: float
+    contribution: float
+
+
 class AuditEventResponse(BaseModel):
     """Response model for individual audit events"""
     id: int
@@ -34,10 +41,12 @@ class AuditEventResponse(BaseModel):
     prompt_hash: str
     prompt_text_redacted: Optional[str] = None
     verdict: str
+    severity: Optional[str] = None
     reason: Optional[str] = None
     rules_matched: list[RuleMatchResponse]
     policy_version: Optional[str] = None
     latency_ms: Optional[float] = None
+    explainability: Optional[list[TokenContributionResponse]] = None
 
 
 class AuditEventsResponse(BaseModel):

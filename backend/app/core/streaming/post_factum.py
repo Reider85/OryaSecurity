@@ -68,6 +68,10 @@ class PostFactumResult:
 AuditWriter = Callable[..., Awaitable[Any]]
 Notifier = Callable[[dict[str, Any]], Awaitable[None]]
 
+# Strong references to background explanation tasks so asyncio does not
+# garbage-collect them mid-flight (the set is drained via done callbacks).
+_background_tasks: set[asyncio.Task] = set()
+
 
 async def _default_notifier(message: dict[str, Any]) -> None:
     from app.core.notifications.websocket import get_connection_manager
@@ -102,6 +106,8 @@ class PostFactumAnalyzer:
         toxicity_detector: Any = None,
         audit_writer: Optional[AuditWriter] = None,
         notifier: Optional[Notifier] = None,
+        explainer: Any = None,
+        audit_updater: Optional[AuditWriter] = None,
     ):
         self._embedding_client = embedding_client
         self._vector_searcher = vector_searcher
@@ -109,6 +115,8 @@ class PostFactumAnalyzer:
         self._toxicity_detector = toxicity_detector
         self._audit_writer = audit_writer
         self._notifier = notifier
+        self._explainer = explainer
+        self._audit_updater = audit_updater
 
     # -- lazy defaults (resolve shared singletons at call time) -------------
 
@@ -146,6 +154,20 @@ class PostFactumAnalyzer:
         from app.core.audit import write_event
 
         return write_event
+
+    async def _get_audit_updater(self) -> AuditWriter:
+        if self._audit_updater is not None:
+            return self._audit_updater
+        from app.core.audit import update_event_explainability
+
+        return update_event_explainability
+
+    def _get_explainer(self) -> Any:
+        if self._explainer is not None:
+            return self._explainer
+        from app.core.detectors.classifier_explainability import get_shared_explainer
+
+        return get_shared_explainer()
 
     async def _get_notifier(self) -> Notifier:
         return self._notifier if self._notifier is not None else _default_notifier
@@ -306,7 +328,9 @@ class PostFactumAnalyzer:
 
             if result.flagged:
                 scanner_post_factum_total.labels(outcome="flagged").inc()
-                await self._on_flagged(result, request_id=request_id, tenant_id=tenant_id)
+                await self._on_flagged(
+                    result, request_id=request_id, tenant_id=tenant_id, text=text
+                )
             else:
                 scanner_post_factum_total.labels(outcome="clean").inc()
 
@@ -346,6 +370,7 @@ class PostFactumAnalyzer:
         *,
         request_id: str,
         tenant_id: Optional[str],
+        text: str = "",
     ) -> None:
         """Write the audit event and notify SecOps over WebSocket."""
         audit_writer = await self._get_audit_writer()
@@ -395,6 +420,90 @@ class PostFactumAnalyzer:
             )
         except Exception as exc:  # noqa: BLE001 — notification is best-effort
             logger.warning("post_factum_notify_failed", error=str(exc))
+
+        # SHAP explainability (Prompt 19) — computed in the background and
+        # UPDATEd onto the audit row once ready, so the flag itself is never
+        # delayed by the explainer.
+        classifier_finding = next(
+            (f for f in result.findings if f.source == "ml_classifier"), None
+        )
+        if classifier_finding is not None and settings.explainability_enabled:
+            self._schedule_explanation(
+                text,
+                request_id=request_id,
+                tenant_id=tenant_id,
+                top_class=classifier_finding.details.get("top_class"),
+            )
+
+    # -- background explainability (Prompt 19) --------------------------------
+
+    def _schedule_explanation(
+        self,
+        text: str,
+        *,
+        request_id: str,
+        tenant_id: Optional[str],
+        top_class: Optional[str],
+    ) -> None:
+        """Kick off a background SHAP explanation (never raises)."""
+        task = asyncio.create_task(
+            self._run_explanation(
+                text,
+                request_id=request_id,
+                tenant_id=tenant_id,
+                top_class=top_class,
+            )
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
+    async def _run_explanation(
+        self,
+        text: str,
+        *,
+        request_id: str,
+        tenant_id: Optional[str],
+        top_class: Optional[str],
+    ) -> None:
+        """Explain the flagged classification, persist it and notify SecOps."""
+        start = time.perf_counter()
+        try:
+            explainer = self._get_explainer()
+            explanation = await explainer.explain(text, top_class=top_class)
+            if not explanation:
+                return
+
+            updater = await self._get_audit_updater()
+            await updater(
+                request_id=request_id,
+                explainability=explanation,
+            )
+
+            notifier = await self._get_notifier()
+            await notifier(
+                {
+                    "type": "post_factum_explainability",
+                    "request_id": str(request_id),
+                    "tenant_id": tenant_id,
+                    "prompt_hash": hashlib.sha256(text.encode()).hexdigest(),
+                    "explainability": explanation,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — explainability is optional
+            logger.warning(
+                "post_factum_explainability_failed",
+                request_id=str(request_id),
+                error=str(exc),
+            )
+        finally:
+            logger.info(
+                "post_factum_explainability_done",
+                request_id=str(request_id),
+                duration_ms=round((time.perf_counter() - start) * 1000, 2),
+            )
 
 
 # Global singleton

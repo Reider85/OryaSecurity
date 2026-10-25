@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Iterable
 
 import structlog
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 
 from app.config import settings
 from app.db.models import AuditEvent
@@ -64,6 +64,33 @@ def _normalize_rules(rules_matched: Iterable[dict] | None) -> list[dict]:
     return normalized
 
 
+# Defensive upper bound so a malformed explanation can never bloat a row.
+_MAX_EXPLAINABILITY_TOKENS = 50
+
+
+def _normalize_explainability(
+    explainability: Iterable[dict] | None,
+) -> list[dict] | None:
+    """Keep only {token, shap_value, contribution} triples, bounded in size."""
+    if explainability is None:
+        return None
+    normalized: list[dict] = []
+    for entry in explainability:
+        token = entry.get("token")
+        if token is None:
+            continue
+        normalized.append(
+            {
+                "token": str(token),
+                "shap_value": float(entry.get("shap_value") or 0.0),
+                "contribution": float(entry.get("contribution") or 0.0),
+            }
+        )
+        if len(normalized) >= _MAX_EXPLAINABILITY_TOKENS:
+            break
+    return normalized
+
+
 async def write_event(
     *,
     request_id: str | uuid.UUID,
@@ -77,6 +104,7 @@ async def write_event(
     latency_ms: float | None = None,
     metadata: dict | None = None,
     severity: str | None = None,
+    explainability: list[dict] | None = None,
 ) -> AuditEvent | None:
     """Persist a scan decision to the audit log.
 
@@ -98,6 +126,7 @@ async def write_event(
         rules_matched=_normalize_rules(rules_matched),
         policy_version=policy_version or settings.policy_version,
         latency_ms=latency_ms,
+        explainability=_normalize_explainability(explainability),
     )
 
     try:
@@ -128,6 +157,58 @@ async def write_event(
     return event
 
 
+async def update_event_explainability(
+    *,
+    request_id: str | uuid.UUID,
+    explainability: list[dict],
+) -> bool:
+    """Attach SHAP explainability to an already-written audit event.
+
+    Explanation is computed in the background after the flag was recorded, so
+    it is UPDATEd onto the existing row. Fails open like every other audit
+    write: returns False instead of raising.
+    """
+    if not settings.audit_enabled:
+        logger.info("audit_disabled", request_id=str(request_id))
+        return False
+
+    coerced_id = _coerce_request_id(request_id)
+    payload = _normalize_explainability(explainability)
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                update(AuditEvent)
+                .where(AuditEvent.request_id == coerced_id)
+                .values(explainability=payload)
+                .execution_options(synchronize_session=False)
+            )
+            rowcount = result.rowcount or 0
+    except Exception as exc:
+        logger.warning(
+            "audit_explainability_update_failed",
+            request_id=str(request_id),
+            error=str(exc),
+            fail_open=True,
+        )
+        return False
+
+    if rowcount == 0:
+        logger.warning(
+            "audit_explainability_update_noop",
+            request_id=str(coerced_id),
+            reason="no audit event for request_id",
+        )
+        return False
+
+    logger.info(
+        "audit_explainability_updated",
+        request_id=str(coerced_id),
+        tokens=len(payload or []),
+    )
+    return True
+
+
 def _serialize(event: AuditEvent) -> dict[str, Any]:
     return {
         "id": event.id,
@@ -142,6 +223,7 @@ def _serialize(event: AuditEvent) -> dict[str, Any]:
         "rules_matched": event.rules_matched or [],
         "policy_version": event.policy_version,
         "latency_ms": event.latency_ms,
+        "explainability": event.explainability,
     }
 
 

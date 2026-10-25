@@ -117,6 +117,19 @@ scanner_ml_classifier_duration_seconds = Histogram(
     buckets=[0.001, 0.005, 0.01, 0.015, 0.02, 0.05, 0.1, 0.5],
 )
 
+# SHAP explainability metrics (Prompt 19)
+scanner_explainability_duration_seconds = Histogram(
+    "scanner_explainability_duration_seconds",
+    "SHAP explainability computation latency in seconds",
+    buckets=[0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0],
+)
+
+scanner_explainability_total = Counter(
+    "scanner_explainability_total",
+    "Total SHAP explainability requests by outcome",
+    labelnames=["outcome"],  # ok | cache_hit | timeout | degraded | disabled | error
+)
+
 # Embedding cache metrics (ADR-0015)
 scanner_embedding_cache_hits_total = Counter(
     "scanner_embedding_cache_hits_total",

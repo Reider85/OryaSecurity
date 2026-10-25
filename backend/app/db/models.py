@@ -56,6 +56,7 @@ class AuditEvent(Base):
     )
     policy_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     latency_ms: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    explainability: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     def __repr__(self) -> str:
         return (

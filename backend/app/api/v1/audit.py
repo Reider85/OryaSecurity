@@ -66,10 +66,12 @@ async def get_audit_events(
             "prompt_hash": event.get("prompt_hash"),
             "prompt_text_redacted": event.get("prompt_text_redacted"),
             "verdict": event.get("verdict"),
+            "severity": event.get("severity"),
             "reason": event.get("reason"),
             "rules_matched": rules_matched,
             "policy_version": event.get("policy_version"),
-            "latency_ms": event.get("latency_ms")
+            "latency_ms": event.get("latency_ms"),
+            "explainability": event.get("explainability"),
         })
     
     return AuditEventsResponse(
