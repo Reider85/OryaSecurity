@@ -159,7 +159,7 @@ class ClassifierModel:
             Probabilities array [batch, num_classes]
         """
         import time
-        start_time = time.time()
+        start_time = time.perf_counter()
         
         try:
             # Preprocess
@@ -172,7 +172,7 @@ class ClassifierModel:
             probs = self._softmax(logits)
             
             # Update performance metrics
-            processing_time = (time.time() - start_time) * 1000
+            processing_time = (time.perf_counter() - start_time) * 1000
             self.inference_count += len(texts)
             self.total_time_ms += processing_time
             

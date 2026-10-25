@@ -174,7 +174,7 @@ class PromptClassifier:
     
     def _classify_sync(self, text: str) -> ClassificationResult:
         """Synchronous classification for executor."""
-        start_time = time.time()
+        start_time = time.perf_counter()
         
         try:
             # Get probabilities from model
@@ -193,7 +193,7 @@ class PromptClassifier:
             }
             
             # Update performance metrics
-            processing_time = (time.time() - start_time) * 1000
+            processing_time = (time.perf_counter() - start_time) * 1000
             self.inference_count += 1
             self.total_time_ms += processing_time
             
@@ -251,7 +251,7 @@ class PromptClassifier:
     
     def _classify_batch_sync(self, texts: List[str]) -> List[ClassificationResult]:
         """Synchronous batch classification for executor."""
-        start_time = time.time()
+        start_time = time.perf_counter()
         
         try:
             # Get probabilities from model
@@ -279,7 +279,7 @@ class PromptClassifier:
                 ))
             
             # Update performance metrics
-            processing_time = (time.time() - start_time) * 1000
+            processing_time = (time.perf_counter() - start_time) * 1000
             self.inference_count += len(texts)
             self.total_time_ms += processing_time
             
