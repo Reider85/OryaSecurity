@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
-from app.core.detectors.ml_classifier import ClassificationResult, PromptClassifier
+from app.core.detectors.ml_classifier import ClassificationResult, PromptClassifier, CLASS_NAMES
 
 
 class TestClassificationResult:
@@ -21,7 +21,7 @@ class TestClassificationResult:
         result = ClassificationResult(
             top_class="benign",
             confidence=0.95,
-            all_scores={"benign": 0.95, "prompt_injection": 0.05},
+            all_classes={"benign": 0.95, "prompt_injection": 0.05},
             logits=np.array([1.0, 0.0, 0.0, 0.0]),
             processing_time_ms=10.5
         )
@@ -30,26 +30,28 @@ class TestClassificationResult:
         
         assert result_dict["top_class"] == "benign"
         assert result_dict["confidence"] == 0.95
-        assert result_dict["all_scores"]["benign"] == 0.95
+        assert result_dict["all_classes"]["benign"] == 0.95
         assert result_dict["processing_time_ms"] == 10.5
+    
+    def test_legacy_all_scores_alias(self):
+        """Test backward compatibility with all_scores parameter."""
+        result = ClassificationResult(
+            top_class="prompt_injection",
+            confidence=0.92,
+            all_classes={"benign": 0.08, "prompt_injection": 0.92},
+            all_scores={"benign": 0.08, "prompt_injection": 0.92}  # legacy
+        )
+        
+        assert result.all_classes["prompt_injection"] == 0.92
+        assert result.all_scores["prompt_injection"] == 0.92  # property alias
 
 
 class TestPromptClassifierLogic:
     """Test PromptClassifier logic without real model loading."""
     
-    def test_softmax(self):
-        """Test softmax function."""
-        classifier = PromptClassifier.__new__(PromptClassifier)  # Create without calling __init__
-        logits = np.array([[1.0, 2.0, 0.0, 0.5]])
-        probs = classifier._softmax(logits)
-        
-        assert probs.shape == (1, 4)
-        assert np.allclose(probs.sum(axis=1), 1.0)
-        assert probs[0][1] > probs[0][0]  # 2.0 > 1.0
-    
-    def test_class_names(self):
+    def test_class_names_constant(self):
         """Test class names are correct."""
-        assert PromptClassifier.CLASS_NAMES == ["benign", "prompt_injection", "jailbreak", "suspicious"]
+        assert CLASS_NAMES == ["benign", "prompt_injection", "jailbreak", "suspicious"]
 
 
 class TestRealModelIntegration:

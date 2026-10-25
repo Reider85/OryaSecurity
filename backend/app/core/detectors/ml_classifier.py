@@ -4,18 +4,23 @@ ML Classifier Inference Service for Prompt Injection Detection.
 Provides inference for the ONNX exported classifier with optimized performance.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
-import onnxruntime as ort
-from transformers import AutoTokenizer
-
 from app.core.logging import get_logger
+from app.core.metrics import scanner_ml_classifier_duration_seconds
+from app.ml.models.classifier_model import ClassifierModel, get_classifier_model, set_classifier_model
 
 logger = get_logger(__name__)
+
+# Class mapping (must match training)
+CLASS_NAMES = ["benign", "prompt_injection", "jailbreak", "suspicious"]
 
 
 class ClassificationResult:
@@ -25,23 +30,50 @@ class ClassificationResult:
         self,
         top_class: str,
         confidence: float,
-        all_scores: Dict[str, float],
-        logits: np.ndarray,
-        processing_time_ms: float
+        all_classes: Dict[str, float],
+        logits: Optional[np.ndarray] = None,
+        processing_time_ms: float = 0.0,
+        # Legacy alias for backward compatibility
+        all_scores: Optional[Dict[str, float]] = None,
     ):
+        """
+        Initialize classification result.
+        
+        Args:
+            top_class: Predicted class name
+            confidence: Confidence score (0.0-1.0)
+            all_classes: Dictionary of all class probabilities
+            logits: Raw logits array (optional, for explainability)
+            processing_time_ms: Time taken for classification in milliseconds
+            all_scores: Legacy alias for all_classes (deprecated)
+        """
         self.top_class = top_class
         self.confidence = confidence
-        self.all_scores = all_scores
+        self.all_classes = all_classes
         self.logits = logits
         self.processing_time_ms = processing_time_ms
+        
+        # Handle legacy all_scores parameter
+        if all_scores is not None:
+            self.all_classes = all_scores
+    
+    @property
+    def all_scores(self) -> Dict[str, float]:
+        """Legacy property for backward compatibility."""
+        return self.all_classes
+    
+    @property
+    def is_suspicious(self) -> bool:
+        """Check if result indicates suspicious content."""
+        return self.top_class in ("prompt_injection", "jailbreak", "suspicious")
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
         return {
             "top_class": self.top_class,
             "confidence": self.confidence,
-            "all_scores": self.all_scores,
-            "processing_time_ms": self.processing_time_ms
+            "all_classes": self.all_classes,
+            "processing_time_ms": self.processing_time_ms,
         }
 
 
@@ -54,147 +86,72 @@ class PromptClassifier:
     - Batch processing
     - Memory efficiency
     - Error handling
+    - Graceful degradation
     """
     
-    # Class mapping (must match training)
-    CLASS_NAMES = ["benign", "prompt_injection", "jailbreak", "suspicious"]
-    
-    def __init__(self, model_path: Path, tokenizer_path: Optional[Path] = None):
+    def __init__(
+        self,
+        model_path: str | Path,
+        tokenizer_path: Optional[str | Path] = None,
+        max_length: int = 512,
+        flag_threshold: float = 0.85,
+    ):
         """
         Initialize classifier with ONNX model and tokenizer.
         
         Args:
             model_path: Path to ONNX model file (.onnx)
             tokenizer_path: Path to tokenizer config (defaults to same dir as model)
+            max_length: Max token length for inference
+            flag_threshold: Confidence threshold for flagging suspicious content
         """
-        self.model_path = model_path
-        self.tokenizer_path = tokenizer_path or model_path.parent
+        self.model_path = Path(model_path)
+        self.tokenizer_path = Path(tokenizer_path) if tokenizer_path else self.model_path.parent
+        self.max_length = max_length
+        self.flag_threshold = flag_threshold
         
-        # Load model and tokenizer
-        self._load_model()
-        self._load_tokenizer()
+        # Load model and tokenizer with graceful degradation
+        self._model: Optional[ClassifierModel] = None
+        self._available = False
+        self._load()
         
         # Performance tracking
         self.inference_count = 0
         self.total_time_ms = 0.0
-        
-        logger.info(f"Classifier initialized: {model_path}")
     
-    def _load_model(self):
-        """Load ONNX model with optimized session."""
+    def _load(self) -> None:
+        """Load model with graceful degradation."""
         try:
-            # Use CPU execution provider for consistent performance
-            providers = ['CPUExecutionProvider']
-            
-            # Create inference session
-            sess_options = ort.SessionOptions()
-            sess_options.intra_op_num_threads = 1  # Single thread for latency
-            sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-            
-            self.session = ort.InferenceSession(
-                str(self.model_path),
-                providers=providers,
-                sess_options=sess_options
+            self._model = ClassifierModel(
+                self.model_path,
+                self.tokenizer_path,
+                self.max_length,
             )
-            
-            # Get model info
-            self.model_inputs = {inp.name: inp for inp in self.session.get_inputs()}
-            self.model_outputs = {out.name: out for out in self.session.get_outputs()}
-            
-            logger.info(f"Model loaded: {len(self.model_inputs)} inputs, {len(self.model_outputs)} outputs")
-            
+            self._available = True
+            logger.info(f"Classifier loaded: {self.model_path}")
         except Exception as e:
-            logger.error(f"Failed to load model {self.model_path}: {e}")
-            raise
+            self._model = None
+            self._available = False
+            logger.warning("classifier_load_failed", error=str(e), fallback="disabled")
     
-    def _load_tokenizer(self):
-        """Load tokenizer from local path."""
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(str(self.tokenizer_path))
-            logger.info(f"Tokenizer loaded from {self.tokenizer_path}")
-        except Exception as e:
-            logger.error(f"Failed to load tokenizer: {e}")
-            raise
+    @property
+    def available(self) -> bool:
+        """Check if classifier is available and ready."""
+        return self._available and self._model is not None and self._model.is_available()
     
-    def _preprocess(self, texts: List[str]) -> Dict[str, np.ndarray]:
+    def should_flag(self, result: ClassificationResult) -> bool:
         """
-        Tokenize texts for ONNX inference.
+        Determine if result should be flagged based on threshold.
         
         Args:
-            texts: List of input texts
+            result: Classification result
             
         Returns:
-            Dictionary of tokenized inputs ready for ONNX
+            True if result should be flagged
         """
-        # Tokenize with truncation and padding
-        encoded = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors="np",
-            return_token_type_ids=True
-        )
-        
-        # Convert to proper format for ONNX
-        inputs = {}
-        for key, tensor in encoded.items():
-            # Ensure correct data type (usually int64 for token IDs)
-            if key in ['input_ids', 'attention_mask', 'token_type_ids']:
-                inputs[key] = tensor.astype(np.int64)
-            else:
-                inputs[key] = tensor
-        
-        return inputs
+        return result.is_suspicious and result.confidence >= self.flag_threshold
     
-    def _postprocess(self, outputs: List[Dict[str, np.ndarray]]) -> List[ClassificationResult]:
-        """
-        Process ONNX outputs to classification results.
-        
-        Args:
-            outputs: List of output dictionaries from ONNX session
-            
-        Returns:
-            List of ClassificationResult objects
-        """
-        results = []
-        
-        for output in outputs:
-            # Get logits from output
-            logits = output['logits']
-            
-            # Apply softmax to get probabilities
-            probs = self._softmax(logits)
-            
-            # Get top class and confidence
-            top_idx = np.argmax(probs)
-            top_class = self.CLASS_NAMES[top_idx]
-            confidence = float(probs[top_idx])
-            
-            # Create all_scores dict
-            all_scores = {
-                class_name: float(prob)
-                for class_name, prob in zip(self.CLASS_NAMES, probs)
-            }
-            
-            results.append(ClassificationResult(
-                top_class=top_class,
-                confidence=confidence,
-                all_scores=all_scores,
-                logits=logits,
-                processing_time_ms=0.0  # Will be set by caller
-            ))
-        
-        return results
-    
-    @staticmethod
-    def _softmax(x: np.ndarray) -> np.ndarray:
-        """Apply softmax to logits."""
-        # Numerically stable softmax
-        exp_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
-        return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
-    
-    async def classify(self, text: str) -> ClassificationResult:
+    async def classify(self, text: str) -> Optional[ClassificationResult]:
         """
         Classify a single text prompt.
         
@@ -202,51 +159,67 @@ class PromptClassifier:
             text: Input text to classify
             
         Returns:
-            ClassificationResult with prediction and confidence
+            ClassificationResult with prediction and confidence, or None if unavailable
         """
-        import time
+        if not self.available:
+            return None
+        
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, self._classify_sync, text)
+            return result
+        except Exception as e:
+            logger.error(f"Classification failed for text: {e}")
+            return None
+    
+    def _classify_sync(self, text: str) -> ClassificationResult:
+        """Synchronous classification for executor."""
         start_time = time.time()
         
         try:
-            # Preprocess
-            inputs = self._preprocess([text])
+            # Get probabilities from model
+            probs = self._model.predict([text])
             
-            # Run inference
-            outputs = self.session.run(
-                list(self.model_outputs.keys()),
-                {name: tensor for name, tensor in inputs.items()}
-            )
+            # Get top class and confidence
+            probs_flat = probs[0]
+            top_idx = np.argmax(probs_flat)
+            top_class = CLASS_NAMES[top_idx]
+            confidence = float(probs_flat[top_idx])
             
-            # Convert to expected format
-            output_dict = {name: tensor for name, tensor in zip(self.model_outputs.keys(), outputs)}
-            
-            # Postprocess
-            results = self._postprocess([output_dict])
-            result = results[0]
+            # Create all_classes dict
+            all_classes = {
+                class_name: float(prob)
+                for class_name, prob in zip(CLASS_NAMES, probs_flat)
+            }
             
             # Update performance metrics
             processing_time = (time.time() - start_time) * 1000
-            result.processing_time_ms = processing_time
-            
             self.inference_count += 1
             self.total_time_ms += processing_time
             
-            logger.debug(f"Classification: {text[:50]}... -> {result.top_class} ({result.confidence:.3f})")
+            # Record latency metric
+            scanner_ml_classifier_duration_seconds.observe(processing_time / 1000)
             
-            return result
+            logger.debug(f"Classification: {text[:50]}... -> {top_class} ({confidence:.3f})")
+            
+            return ClassificationResult(
+                top_class=top_class,
+                confidence=confidence,
+                all_classes=all_classes,
+                processing_time_ms=processing_time,
+            )
             
         except Exception as e:
-            logger.error(f"Classification failed for text: {e}")
+            logger.error(f"Classification failed: {e}")
             # Return low confidence benign as fallback
             return ClassificationResult(
                 top_class="benign",
                 confidence=0.1,
-                all_scores={name: 0.25 for name in self.CLASS_NAMES},
-                logits=np.array([0.0, 0.0, 0.0, 0.0]),
-                processing_time_ms=0.0
+                all_classes={name: 0.25 for name in CLASS_NAMES},
+                processing_time_ms=0.0,
             )
     
-    async def classify_batch(self, texts: List[str]) -> List[ClassificationResult]:
+    async def classify_batch(self, texts: List[str]) -> List[Optional[ClassificationResult]]:
         """
         Classify multiple texts in batch for better performance.
         
@@ -254,34 +227,68 @@ class PromptClassifier:
             texts: List of input texts
             
         Returns:
-            List of ClassificationResult objects
+            List of ClassificationResult objects or None for unavailable
         """
-        import time
+        if not self.available:
+            return [None] * len(texts)
+        
+        try:
+            loop = asyncio.get_running_loop()
+            results = await loop.run_in_executor(None, self._classify_batch_sync, texts)
+            return results
+        except Exception as e:
+            logger.error(f"Batch classification failed: {e}")
+            # Return fallback results
+            return [
+                ClassificationResult(
+                    top_class="benign",
+                    confidence=0.1,
+                    all_classes={name: 0.25 for name in CLASS_NAMES},
+                    processing_time_ms=0.0,
+                )
+                for _ in texts
+            ]
+    
+    def _classify_batch_sync(self, texts: List[str]) -> List[ClassificationResult]:
+        """Synchronous batch classification for executor."""
         start_time = time.time()
         
         try:
-            # Preprocess
-            inputs = self._preprocess(texts)
+            # Get probabilities from model
+            probs = self._model.predict(texts)
             
-            # Run batch inference
-            outputs = self.session.run(
-                list(self.model_outputs.keys()),
-                {name: tensor for name, tensor in inputs.items()}
-            )
-            
-            # Convert to expected format
-            output_dict = {name: tensor for name, tensor in zip(self.model_outputs.keys(), outputs)}
-            
-            # Postprocess
-            results = self._postprocess([output_dict] * len(texts))  # Duplicate for each text
+            # Create results for each text
+            results = []
+            for prob_row in probs:
+                # Get top class and confidence
+                top_idx = np.argmax(prob_row)
+                top_class = CLASS_NAMES[top_idx]
+                confidence = float(prob_row[top_idx])
+                
+                # Create all_classes dict
+                all_classes = {
+                    class_name: float(prob)
+                    for class_name, prob in zip(CLASS_NAMES, prob_row)
+                }
+                
+                results.append(ClassificationResult(
+                    top_class=top_class,
+                    confidence=confidence,
+                    all_classes=all_classes,
+                    processing_time_ms=0.0,  # Will be set below
+                ))
             
             # Update performance metrics
             processing_time = (time.time() - start_time) * 1000
-            for result in results:
-                result.processing_time_ms = processing_time
-            
             self.inference_count += len(texts)
             self.total_time_ms += processing_time
+            
+            # Record latency metric
+            scanner_ml_classifier_duration_seconds.observe(processing_time / 1000)
+            
+            # Set processing time for all results
+            for result in results:
+                result.processing_time_ms = processing_time
             
             logger.info(f"Batch classified {len(texts)} texts in {processing_time:.2f}ms")
             
@@ -294,9 +301,8 @@ class PromptClassifier:
                 ClassificationResult(
                     top_class="benign",
                     confidence=0.1,
-                    all_scores={name: 0.25 for name in self.CLASS_NAMES},
-                    logits=np.array([0.0, 0.0, 0.0, 0.0]),
-                    processing_time_ms=0.0
+                    all_classes={name: 0.25 for name in CLASS_NAMES},
+                    processing_time_ms=0.0,
                 )
                 for _ in texts
             ]
@@ -309,15 +315,19 @@ class PromptClassifier:
             "total_time_ms": self.total_time_ms,
             "avg_time_ms": avg_time,
             "model_path": str(self.model_path),
-            "class_names": self.CLASS_NAMES
+            "max_length": self.max_length,
+            "flag_threshold": self.flag_threshold,
+            "available": self.available,
         }
     
     async def health_check_async(self) -> bool:
         """Check if classifier is healthy (async version)."""
+        if not self.available:
+            return False
+        
         try:
-            # Test with a simple prompt
-            test_result = await self.classify("Hello, how are you?")
-            return test_result.top_class in self.CLASS_NAMES
+            result = await self.classify("Hello, how are you?")
+            return result is not None and result.top_class in CLASS_NAMES
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return False
@@ -325,12 +335,11 @@ class PromptClassifier:
     def health_check(self) -> bool:
         """Check if classifier is healthy (sync version)."""
         try:
-            # Create a new event loop for health check
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                test_result = loop.run_until_complete(self.classify("Hello, how are you?"))
-                return test_result.top_class in self.CLASS_NAMES
+                result = loop.run_until_complete(self.classify("Hello, how are you?"))
+                return result is not None and result.top_class in CLASS_NAMES
             finally:
                 loop.close()
         except Exception as e:
@@ -338,29 +347,30 @@ class PromptClassifier:
             return False
 
 
-# Global classifier instance (singleton pattern)
+# Global classifier instances
 _global_classifier: Optional[PromptClassifier] = None
 
 
-async def get_classifier() -> PromptClassifier:
+async def get_classifier() -> Optional[PromptClassifier]:
     """Get global classifier instance (lazy initialization)."""
     global _global_classifier
     
     if _global_classifier is None:
-        # Load from default path
-        model_path = Path("ml-models/classifier/v1/model.onnx")
-        tokenizer_path = Path("ml-models/classifier/v1")
+        # Load from config settings
+        from app.config import settings
         
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
-        
-        _global_classifier = PromptClassifier(model_path, tokenizer_path)
+        _global_classifier = PromptClassifier(
+            model_path=settings.classifier_model_path,
+            tokenizer_path=settings.classifier_tokenizer_path,
+            max_length=settings.classifier_max_length,
+            flag_threshold=settings.classifier_flag_threshold,
+        )
         logger.info("Global classifier initialized")
     
     return _global_classifier
 
 
-async def classify_prompt(text: str) -> ClassificationResult:
+async def classify_prompt(text: str) -> Optional[ClassificationResult]:
     """
     Convenience function to classify a prompt using global classifier.
     
@@ -368,35 +378,36 @@ async def classify_prompt(text: str) -> ClassificationResult:
         text: Input text to classify
         
     Returns:
-        ClassificationResult
+        ClassificationResult or None if unavailable
     """
     classifier = await get_classifier()
-    return await classifier.classify(text)
+    return await classifier.classify(text) if classifier else None
 
 
 # Shared classifier functions (for __init__.py compatibility)
 _shared_classifier: Optional[PromptClassifier] = None
 
 
-def get_shared_classifier() -> PromptClassifier:
+def get_shared_classifier() -> Optional[PromptClassifier]:
     """Get shared classifier instance (sync version)."""
     global _shared_classifier
     
     if _shared_classifier is None:
-        # Load from default path
-        model_path = Path("ml-models/classifier/v1/model.onnx")
-        tokenizer_path = Path("ml-models/classifier/v1")
+        # Load from config settings
+        from app.config import settings
         
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
-        
-        _shared_classifier = PromptClassifier(model_path, tokenizer_path)
+        _shared_classifier = PromptClassifier(
+            model_path=settings.classifier_model_path,
+            tokenizer_path=settings.classifier_tokenizer_path,
+            max_length=settings.classifier_max_length,
+            flag_threshold=settings.classifier_flag_threshold,
+        )
         logger.info("Shared classifier initialized")
     
     return _shared_classifier
 
 
-def set_shared_classifier(classifier: PromptClassifier) -> None:
+def set_shared_classifier(classifier: Optional[PromptClassifier]) -> None:
     """Set shared classifier instance."""
     global _shared_classifier
     _shared_classifier = classifier
