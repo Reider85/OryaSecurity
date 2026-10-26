@@ -13,10 +13,7 @@ from app.core.rules.base import RuleMatch, Verdict
 logger = structlog.get_logger()
 
 
-@dataclass
-class SuspicionResult:
-    is_suspicious: bool
-    reasons: list[str]
+from app.core.pipeline.suspicion_tagger import SuspicionTagger, SuspicionResult
 
 
 @dataclass
@@ -29,42 +26,9 @@ class FastPathResult:
 
 
 class FastPath:
-    def __init__(self, rule_set: Any = None):
+    def __init__(self, rule_set: Any = None, tagger: SuspicionTagger | None = None):
         self.rule_set = rule_set or scan_text  # Allow dependency injection
-        self._token_threshold = 200
-        self._min_tokens = 3
-
-    def _count_tokens_heuristic(self, text: str) -> int:
-        """Fast token count heuristic using word splitting (sub 0.01ms)."""
-        return len(text.split())
-
-    def _is_suspicious_by_length(self, text: str) -> bool:
-        """Check if text is suspicious based on length."""
-        token_count = self._count_tokens_heuristic(text)
-        return token_count > self._token_threshold
-
-    def _check_suspicion(self, text: str) -> SuspicionResult:
-        """Suspicion tagger logic: length + regex match count."""
-        reasons = []
-        is_suspicious = False
-
-        # Length check
-        if self._is_suspicious_by_length(text):
-            reasons.append(f"length={self._count_tokens_heuristic(text)}")
-            is_suspicious = True
-
-        # Regex match count
-        matches, _ = self.rule_set(text)
-        if matches:
-            reasons.append(f"regex_matches={len(matches)}")
-            is_suspicious = True
-
-        # Edge cases: very short prompts
-        if self._count_tokens_heuristic(text) < self._min_tokens:
-            reasons.append("too_short")
-            is_suspicious = False  # Not suspicious, just filter out
-
-        return SuspicionResult(is_suspicious=is_suspicious, reasons=reasons)
+        self.tagger = tagger or SuspicionTagger(rule_set=rule_set)  # Use provided or create with rule_set
 
     async def process(self, text: str) -> FastPathResult:
         """
@@ -103,7 +67,7 @@ class FastPath:
 
         # Step 3: Suspicion tagger
         suspicion_start = time.time()
-        suspicion_result = self._check_suspicion(text)
+        suspicion_result = self.tagger.is_suspicious(text)
         suspicion_latency = time.time() - suspicion_start
 
         # Decision logic

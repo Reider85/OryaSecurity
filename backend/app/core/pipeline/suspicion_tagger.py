@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +11,10 @@ from app.core.pdp import rule_set, scan_text
 class SuspicionResult:
     is_suspicious: bool
     reasons: list[str]
+
+
+# Precompile base64 pattern for performance
+BASE64_PATTERN = re.compile(r'[A-Za-z0-9+/]{200,}={0,2}')
 
 
 class SuspicionTagger:
@@ -52,9 +57,7 @@ class SuspicionTagger:
             is_suspicious = True
 
         # Base64 encoded data check
-        import re
-        base64_pattern = r'[A-Za-z0-9+/]{200,}[==]?'
-        if re.search(base64_pattern, text):
+        if BASE64_PATTERN.search(text):
             reasons.append("base64_data")
             is_suspicious = True
 

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.core.cache import decision_cache
 from app.core.pipeline.fast_path import FastPath, FastPathResult
+from app.core.pipeline.suspicion_tagger import SuspicionTagger
 from app.core.rules.base import Verdict, RuleMatch
 from app.core.pdp import scan_text
 
@@ -28,8 +29,8 @@ def mock_rule_set():
 
 @pytest.fixture
 def fast_path_instance(mock_rule_set):
-    """FastPath instance with mocked rule set."""
-    return FastPath(rule_set=mock_rule_set)
+    """FastPath instance with mocked rule set and tagger."""
+    return FastPath(rule_set=mock_rule_set, tagger=SuspicionTagger(rule_set=mock_rule_set))
 
 
 class TestFastPath:
@@ -106,7 +107,7 @@ class TestFastPath:
         assert result.verdict is None
         assert result.cache_hit is False
         assert result.is_suspicious is True
-        assert "length" in fast_path_instance._check_suspicion(long_prompt).reasons
+        assert "length" in fast_path_instance.tagger.is_suspicious(long_prompt).reasons
 
     @pytest.mark.asyncio
     async def test_very_short_prompt_not_suspicious(self, fast_path_instance: FastPath, mock_rule_set):
@@ -121,7 +122,7 @@ class TestFastPath:
         assert result.verdict.action == "allow"
         assert result.cache_hit is False
         assert result.is_suspicious is False
-        assert "too_short" in fast_path_instance._check_suspicion("hi").reasons
+        assert "too_short" in fast_path_instance.tagger.is_suspicious("hi").reasons
 
     @pytest.mark.asyncio
     async def test_latency_breakdown_contains_all_components(self, fast_path_instance: FastPath, mock_rule_set):
@@ -150,20 +151,20 @@ class TestFastPath:
         assert result.cache_hit is False
         assert result.is_suspicious is True  # No cache, will go to suspicion check
 
-    def test_count_tokens_heuristic(self, fast_path_instance: FastPath):
-        """Test token counting heuristic."""
-        assert fast_path_instance._count_tokens_heuristic("hello world") == 2
-        assert fast_path_instance._count_tokens_heuristic("one two three four") == 4
-        assert fast_path_instance._count_tokens_heuristic("") == 0
-        assert fast_path_instance._count_tokens_heuristic("word " * 100) == 100
+    def test_count_tokens_heuristic_in_tagger(self, fast_path_instance: FastPath):
+        """Test token counting heuristic via tagger."""
+        assert fast_path_instance.tagger._count_tokens_heuristic("hello world") == 2
+        assert fast_path_instance.tagger._count_tokens_heuristic("one two three four") == 4
+        assert fast_path_instance.tagger._count_tokens_heuristic("") == 0
+        assert fast_path_instance.tagger._count_tokens_heuristic("word " * 100) == 100
 
-    def test_is_suspicious_by_length(self, fast_path_instance: FastPath):
-        """Test length-based suspicion detection."""
+    def test_is_suspicious_by_length_in_tagger(self, fast_path_instance: FastPath):
+        """Test length-based suspicion detection via tagger."""
         # Short prompt
-        assert not fast_path_instance._is_suspicious_by_length("short")
+        assert not fast_path_instance.tagger.is_suspicious("short").is_suspicious
         # Long prompt
         long_text = "word " * 201
-        assert fast_path_instance._is_suspicious_by_length(long_text)
+        assert fast_path_instance.tagger.is_suspicious(long_text).is_suspicious
 
     @pytest.mark.asyncio
     async def test_custom_rule_set_dependency_injection(self, mock_rule_set):
@@ -177,18 +178,18 @@ class TestFastPath:
 
     @pytest.mark.asyncio
     async def test_suspicion_result_reasons_format(self, fast_path_instance: FastPath, mock_rule_set):
-        """Test that suspicion result provides proper reasons."""
+        """Test that suspicion result provides proper reasons via tagger."""
         # Test with matches
         mock_rule_set.return_value = (
             [RuleMatch(rule_id="test_rule", rule_name="Test Rule", value_hash="abc", position=(0, 10), severity="high", action="block")],
             "test_hash"
         )
-        result = fast_path_instance._check_suspicion("test with matches")
+        result = fast_path_instance.tagger.is_suspicious("test with matches")
         assert "regex_matches=1" in result.reasons
 
         # Test with length
         long_text = "word " * 201
-        result = fast_path_instance._check_suspicion(long_text)
+        result = fast_path_instance.tagger.is_suspicious(long_text)
         assert "length=201" in result.reasons
 
         # Test with both
@@ -197,6 +198,6 @@ class TestFastPath:
             "test_hash"
         )
         long_with_matches = "word " * 201 + " suspicious_content"
-        result = fast_path_instance._check_suspicion(long_with_matches)
+        result = fast_path_instance.tagger.is_suspicious(long_with_matches)
         assert "length=201" in result.reasons
         assert "regex_matches=1" in result.reasons
