@@ -177,6 +177,13 @@ scanner_slow_path_degraded_total = Counter(
     labelnames=["component"],  # embedding | vector_search | ml_classifier
 )
 
+# Scanner pipeline path distribution (Prompt 24)
+scanner_path_distribution = Counter(
+    "scanner_path_distribution",
+    "Scanner pipeline path distribution per request",
+    labelnames=["path"],  # fast | slow | cache_hit
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -206,3 +213,4 @@ def init_metrics() -> None:
     scanner_ws_notifications_total.clear()
     scanner_slow_path_total.clear()
     scanner_slow_path_degraded_total.clear()
+    scanner_path_distribution.clear()
