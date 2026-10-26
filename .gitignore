@@ -40,3 +40,6 @@ ml-models/**/*.onnx
 ml-models/**/*.bin
 ml-models/**/*.data
 ml-models/**/*.onnx_data
+
+# OPA binary
+backend/.bin/
