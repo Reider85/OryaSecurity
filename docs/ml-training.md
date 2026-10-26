@@ -177,6 +177,46 @@ Typical results on GPU:
 - Training time: 1-2 hours
 - Model size: ~500MB (FP32), ~125MB (int8 after export)
 
+### Locked Hold-out Test Set (Prompt 20)
+
+- `backend/app/ml/datasets/test_v1.json` — 1000 examples, 250 per class
+  (benign / prompt_injection / jailbreak / suspicious), version-locked
+- `backend/app/ml/datasets/test_v1.manifest.json` — sha256 of the examples
+  payload + fingerprints of the training splits
+- Build: `python -m app.ml.build_test_set` (downloads the source datasets,
+  deduplicates against `ml-models/classifier/v1/{train,val,test}.jsonl`,
+  deterministic for `--seed 42`)
+- Verify: `python -m app.ml.build_test_set --check` — fails when the lock is
+  broken or the hold-out overlaps the training splits
+
+### Evaluation Command
+
+```bash
+python -m app.ml.evaluate \
+  --model ml-models/classifier/v1 \
+  --test-set app/ml/datasets/test_v1.json \
+  --baseline ml-models/classifier/v1/evaluation_baseline.json \
+  --max-regression 0.05
+```
+
+Outputs: console summary, `<model_dir>/evaluation_report.json`,
+`<model_dir>/confusion_matrix.png`.
+
+Metrics: F1 macro, per-class F1/precision/recall, ROC AUC (one-vs-all),
+confusion matrix, latency p50/p99 (batch=1).
+
+Exit codes: `0` — ok (or gate skipped), `1` — F1 regressed more than
+`--max-regression` against the baseline, `2` — invalid test set, broken lock
+or missing model artifacts.
+
+### CI Gate
+
+`.github/workflows/ml-evaluation.yml` runs on PRs touching `backend/app/ml/**`,
+`backend/ml-models/**`, `ml-models/**`: verify lock → smoke-train (seed 42, CPU)
+→ evaluate → compare with `ml-models/classifier/v1/evaluation_baseline.json`.
+A drop of more than 5% fails the PR; the report and confusion matrix are
+uploaded as build artifacts.
+
 ### Troubleshooting
 
 #### Low F1 Score (< 0.85)

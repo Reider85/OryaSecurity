@@ -9,3 +9,7 @@ jailbreakbench.json
 # Downloaded originals
 harmful_behaviors.csv
 jailbreak_behaviors.jsonl
+
+# Locked hold-out test set (Prompt 20) — committed on purpose
+!test_v1.json
+!test_v1.manifest.json

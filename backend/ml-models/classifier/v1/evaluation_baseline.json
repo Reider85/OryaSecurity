@@ -1,0 +1,79 @@
+{
+  "model_path": "ml-models\\classifier\\v1",
+  "test_set_path": "app\\ml\\datasets\\test_v1.json",
+  "test_set_sha256": "ea88668119746ada93431cf9345ff5d314e9b6d5f183c83ab01942868c9ed894",
+  "num_examples": 1000,
+  "f1_macro": 0.09967974379503602,
+  "accuracy": 0.249,
+  "per_class": {
+    "benign": {
+      "f1": 0.3987189751801441,
+      "precision": 0.24924924924924924,
+      "recall": 0.996,
+      "roc_auc": 0.289664
+    },
+    "prompt_injection": {
+      "f1": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "roc_auc": 0.7148266666666666
+    },
+    "jailbreak": {
+      "f1": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "roc_auc": 0.34697066666666665
+    },
+    "suspicious": {
+      "f1": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "roc_auc": 0.7365386666666665
+    }
+  },
+  "roc_auc_macro": 0.522,
+  "confusion_matrix": [
+    [
+      249,
+      0,
+      0,
+      1
+    ],
+    [
+      250,
+      0,
+      0,
+      0
+    ],
+    [
+      250,
+      0,
+      0,
+      0
+    ],
+    [
+      250,
+      0,
+      0,
+      0
+    ]
+  ],
+  "latency_ms": {
+    "p50": 159.08130002208054,
+    "p99": 407.11929601034956,
+    "mean": 176.48609000316355,
+    "min": 111.8317999644205,
+    "max": 545.0674999738112,
+    "n": 200
+  },
+  "generated_at": "2026-10-26T01:11:23.788054+00:00",
+  "gate": {
+    "checked": false,
+    "passed": true,
+    "current_f1": 0.09967974379503602,
+    "baseline_f1": null,
+    "regression": null,
+    "max_regression": 0.05,
+    "message": "no baseline provided — gate skipped"
+  }
+}

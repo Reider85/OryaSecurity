@@ -12,12 +12,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
+import csv
 import hashlib
 import json
 import logging
 import random
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 import numpy as np
@@ -56,8 +58,13 @@ LABEL2ID = {cls: i for i, cls in enumerate(DEFAULT_CLASSES)}
 
 # Dataset URLs
 ADVBENCH_URL = "https://raw.githubusercontent.com/llm-attacks/llm-attacks/main/data/advbench/harmful_behaviors.csv"
-JAILBREAKBENCH_URL = "https://raw.githubusercontent.com/JailbreakBench/JailbreakBench/main/jailbreakbench/data/jailbreak_behaviors.jsonl"
-DOLLY_URL = "https://raw.githubusercontent.com/databricks/dolly/master/data/dolly_enhanced.jsonl"
+# JailbreakBench + Dolly are distributed via the HuggingFace Hub: the old raw
+# GitHub JSONL URLs 404 (never existed / moved). Cached locally as JSONL below.
+JAILBREAKBENCH_HF_ID = "dedeswim/JBB-Behaviors"
+JAILBREAKBENCH_HF_CONFIG = "behaviors"
+JAILBREAKBENCH_HF_SPLIT = "harmful"
+DOLLY_HF_ID = "HuggingFaceH4/databricks_dolly_15k"
+DOLLY_HF_SPLIT = "train"
 
 # Suspicious seed examples (borderline, prompt-leak, roleplay probes)
 SUSPICIOUS_SEEDS = [
@@ -114,11 +121,16 @@ class TrainingData:
         with open(advbench_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                prompt_text = row.get('prompt', '').strip()
-                behavior = row.get('goal', '').strip()
-                
+                # Legacy format: prompt,goal. Current upstream format: goal,target.
+                prompt_text = (row.get('prompt') or row.get('goal') or '').strip()
+                behavior = (row.get('goal') or row.get('target') or '').strip()
+
                 if prompt_text:
-                    full_text = f"{prompt_text} {behavior}"
+                    full_text = (
+                        f"{prompt_text} {behavior}".strip()
+                        if behavior and behavior != prompt_text
+                        else prompt_text
+                    )
                     prompts.append({
                         "text": full_text,
                         "label": CLASS_LABELS["prompt_injection"],
@@ -131,46 +143,63 @@ class TrainingData:
     async def load_jailbreakbench(self, download: bool = True, local_path: str = None) -> List[Dict[str, Any]]:
         """Load JailbreakBench dataset (jailbreak)."""
         jbb_path = Path(local_path or "app/ml/datasets/jailbreakbench.jsonl")
-        
+
         if download and not jbb_path.exists():
-            await self._download_jsonl(JAILBREAKBENCH_URL, jbb_path)
-        
+            await self._download_hf_jsonl(
+                jbb_path,
+                hf_id=JAILBREAKBENCH_HF_ID,
+                config=JAILBREAKBENCH_HF_CONFIG,
+                split=JAILBREAKBENCH_HF_SPLIT,
+                to_record=self._jbb_record,
+            )
+
         if not jbb_path.exists():
             raise FileNotFoundError(f"JailbreakBench dataset not found at {jbb_path}")
-        
+
         prompts = []
         with open(jbb_path, 'r', encoding='utf-8') as f:
             for line in f:
-                data = json.loads(line.strip())
-                prompt_text = data.get('prompt', '').strip()
-                
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                prompt_text = (data.get('prompt') or data.get('Goal') or '').strip()
+
                 if prompt_text:
                     prompts.append({
                         "text": prompt_text,
                         "label": CLASS_LABELS["jailbreak"],
                         "source": "jailbreakbench"
                     })
-        
+
         logger.info("jailbreakbench_loaded", count=len(prompts))
         return prompts
     
     async def load_dolly_benign(self, download: bool = True, local_path: str = None) -> List[Dict[str, Any]]:
         """Load Dolly-15K dataset (benign)."""
         dolly_path = Path(local_path or "app/ml/datasets/dolly.jsonl")
-        
+
         if download and not dolly_path.exists():
-            await self._download_jsonl(DOLLY_URL, dolly_path)
-        
+            await self._download_hf_jsonl(
+                dolly_path,
+                hf_id=DOLLY_HF_ID,
+                config=None,
+                split=DOLLY_HF_SPLIT,
+                to_record=self._dolly_record,
+            )
+
         if not dolly_path.exists():
             raise FileNotFoundError(f"Dolly dataset not found at {dolly_path}")
-        
+
         prompts = []
         with open(dolly_path, 'r', encoding='utf-8') as f:
             for line in f:
-                data = json.loads(line.strip())
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
                 instruction = data.get('instruction', '').strip()
-                response = data.get('response', '').strip()
-                
+
                 if instruction and len(instruction) < 512:  # Truncate long instructions
                     # Use instruction as benign prompt
                     prompts.append({
@@ -178,7 +207,7 @@ class TrainingData:
                         "label": CLASS_LABELS["benign"],
                         "source": "dolly"
                     })
-        
+
         logger.info("dolly_loaded", count=len(prompts))
         return prompts
     
@@ -367,6 +396,55 @@ class TrainingData:
             logger.error("jsonl_download_failed", error=str(e), url=url)
             raise
 
+    @staticmethod
+    def _jbb_record(row: Dict[str, Any]) -> Dict[str, Any]:
+        """Map a JBB-Behaviors HuggingFace row to the local JSONL schema."""
+        return {
+            "prompt": (row.get("Goal") or "").strip(),
+            "category": (row.get("Category") or "").strip(),
+            "source": (row.get("Source") or "").strip(),
+        }
+
+    @staticmethod
+    def _dolly_record(row: Dict[str, Any]) -> Dict[str, Any]:
+        """Map a Dolly HuggingFace row to the local JSONL schema."""
+        return {
+            "instruction": (row.get("instruction") or "").strip(),
+            "response": (row.get("response") or row.get("output") or "").strip(),
+        }
+
+    async def _download_hf_jsonl(
+        self,
+        output_path: Path,
+        hf_id: str,
+        config: Optional[str],
+        split: str,
+        to_record: Callable[[Dict[str, Any]], Dict[str, Any]],
+    ) -> None:
+        """Download a HuggingFace dataset and cache it as a local JSONL file."""
+        logger.info("downloading_hf_dataset", hf_id=hf_id, config=config, split=split)
+
+        def _fetch() -> List[Dict[str, Any]]:
+            from datasets import load_dataset
+
+            dataset = (
+                load_dataset(hf_id, config, split=split)
+                if config
+                else load_dataset(hf_id, split=split)
+            )
+            return [to_record(row) for row in dataset]
+
+        try:
+            records = await asyncio.to_thread(_fetch)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w", encoding="utf-8") as f:
+                for record in records:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            logger.info("hf_dataset_downloaded", path=str(output_path), count=len(records))
+        except Exception as e:
+            logger.error("hf_dataset_download_failed", error=str(e), hf_id=hf_id)
+            raise
+
 
 def main():
     parser = argparse.ArgumentParser(description="Build training dataset for prompt-injection classifier")
@@ -382,6 +460,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-    import csv
     main()

@@ -1,0 +1,19 @@
+{
+  "version": "v1",
+  "seed": 42,
+  "created_at": "2026-10-26T00:25:14.722086+00:00",
+  "test_set": "test_v1.json",
+  "num_examples": 1000,
+  "per_class": {
+    "benign": 250,
+    "prompt_injection": 250,
+    "jailbreak": 250,
+    "suspicious": 250
+  },
+  "sha256": "ea88668119746ada93431cf9345ff5d314e9b6d5f183c83ab01942868c9ed894",
+  "splits_sha256": {
+    "train.jsonl": "f537b9940f627ff9326f6c0c061e58a54c51c5db4073ce31863d0c6ba7331838",
+    "val.jsonl": "e0551481f0045c2e9748f2f1b5c0d161a07165c1668ab041fc6aa13eab28a5b8",
+    "test.jsonl": "4464c41423e5a570d41476975afc6b71d78e467d6e68de48b8b7384e58dc04c8"
+  }
+}
