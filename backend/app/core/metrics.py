@@ -158,6 +158,25 @@ scanner_ws_notifications_total = Counter(
     labelnames=["type"],
 )
 
+# Slow path metrics (Prompt 23)
+scanner_slow_path_duration_seconds = Histogram(
+    "scanner_slow_path_duration_seconds",
+    "Slow path pipeline latency in seconds",
+    buckets=[0.01, 0.02, 0.03, 0.05, 0.1, 0.25, 0.5, 1.0],
+)
+
+scanner_slow_path_total = Counter(
+    "scanner_slow_path_total",
+    "Total slow path requests by outcome",
+    labelnames=["outcome"],  # clean | threat | degraded
+)
+
+scanner_slow_path_degraded_total = Counter(
+    "scanner_slow_path_degraded_total",
+    "Slow path requests degraded due to unavailable components",
+    labelnames=["component"],  # embedding | vector_search | ml_classifier
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -185,3 +204,5 @@ def init_metrics() -> None:
     scanner_post_factum_degraded_total.clear()
     scanner_ws_connections.set(0)
     scanner_ws_notifications_total.clear()
+    scanner_slow_path_total.clear()
+    scanner_slow_path_degraded_total.clear()

@@ -107,4 +107,4 @@ async def fake_redis():
     yield client
     
     # Cleanup
-    await client.aclose()
+    client.close()
