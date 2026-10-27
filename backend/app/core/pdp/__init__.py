@@ -54,3 +54,23 @@ def decide(matches: list[RuleMatch]) -> Verdict:
 
     # Default case: allow (no blocking rules)
     return Verdict(action="allow", reason="Rules matched but none require blocking", rules_matched=matches)
+
+
+# Lazy re-exports: decision.py imports `decide` from this package, so pulling
+# it in at module level would create a circular import (PEP 562 avoids that).
+_LAZY = {"decide_with_opa", "PDPResult", "build_opa_input", "get_active_policy_version",
+         "get_opa_client", "set_opa_client"}
+
+
+def __getattr__(name: str):
+    if name in _LAZY:
+        import importlib
+
+        if name in {"decide_with_opa", "PDPResult", "build_opa_input", "get_active_policy_version"}:
+            module = importlib.import_module("app.core.pdp.decision")
+        else:
+            module = importlib.import_module("app.core.pdp.opa_client")
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
