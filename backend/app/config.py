@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     redact_audit_prompt: bool = True
     policy_version: str = "mvp-1.0"
 
+    # OPA Policy Decision Point (EP-12/Prompt 25 + 28)
+    opa_url: str = ""  # e.g. "http://localhost:8181"; empty = OPA integration off
+    bundle_service_url: str = ""  # e.g. "http://localhost:8081" (serves /bundles/manifest.json)
+    pdp_opa_enabled: bool = False
+    pdp_opa_fail_open: bool = True  # OPA unreachable -> local rules engine (degrade)
+    opa_timeout_ms: int = 200
+    opa_policy_package: str = "tenant_default"  # Rego package for allow/deny evaluation
+    policy_version_cache_ttl_seconds: int = 30  # how long active version is cached in-process
+
     llm_provider_url: str = "http://localhost:8001"
     llm_api_path: str = "/v1/chat/completions"
     llm_model: str | None = "glm-5.3-flash"

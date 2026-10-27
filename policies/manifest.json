@@ -1,0 +1,17 @@
+{
+  "version": "dev",
+  "bundles": [
+    {
+      "id": "global",
+      "path": "global/",
+      "sha256": "2d31b75ab5d06fe10b7e4e1cfbc34ad8036637e6ac2424bb735ad3a325a70f74"
+    },
+    {
+      "id": "tenants_default",
+      "path": "tenants/default.rego",
+      "sha256": "4b451eedbc487c3883d1aef98bd052f3b72504296d81b1d8decbf9cd9e97c87e"
+    }
+  ],
+  "created_at": "2026-10-27T11:33:03Z",
+  "git_commit": "085b0ba783d275d02a6ebcc6f1397302438d9345"
+}

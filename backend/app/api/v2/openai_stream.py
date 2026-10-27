@@ -60,12 +60,16 @@ async def chat_completions_stream(
     
     # Check cache
     from app.core.cache import decision_cache
-    cached, cache_hit = await decision_cache.get(prompt_text)
+    from app.core.pdp import decide_with_opa, get_active_policy_version
+
+    policy_version = await get_active_policy_version()
+    cached, cache_hit = await decision_cache.get(prompt_text, policy_version)
     
     if cached:
         verdict_action = cached["verdict"]
         verdict_reason = cached["reason"]
         verdict_matches = cached["rules_matched"]
+        policy_version = cached.get("policy_version") or policy_version
         logger.info(
             "proxy_cache_hit",
             request_id=request_id,
@@ -73,12 +77,23 @@ async def chat_completions_stream(
             verdict=verdict_action,
         )
     else:
-        from app.core.pdp import decide
-        verdict = decide(prompt_matches)
+        pdp_result = await decide_with_opa(
+            prompt_matches,
+            tenant_id=auth_info.tenant_id or settings.default_tenant_id,
+            request_id=request_id,
+        )
+        verdict = pdp_result.verdict
+        policy_version = pdp_result.policy_version
         verdict_action = verdict.action
         verdict_reason = verdict.reason
         verdict_matches = [m.to_dict() for m in verdict.rules_matched]
-        await decision_cache.set(prompt_text, verdict_action, verdict_reason, verdict_matches)
+        await decision_cache.set(
+            prompt_text,
+            verdict_action,
+            verdict_reason,
+            verdict_matches,
+            policy_version=policy_version,
+        )
     
     latency_ms = (time.perf_counter() - start) * 1000
     
@@ -100,6 +115,7 @@ async def chat_completions_stream(
             verdict="block",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            policy_version=policy_version,
             tenant_id=auth_info.tenant_id or settings.default_tenant_id,
             latency_ms=latency_ms,
             metadata={"direction": "prompt"},
@@ -136,6 +152,7 @@ async def chat_completions_stream(
         verdict="allow",
         reason=verdict_reason,
         rules_matched=verdict_matches,
+        policy_version=policy_version,
         tenant_id=auth_info.tenant_id or settings.default_tenant_id,
         latency_ms=latency_ms,
         metadata={"direction": "prompt"},

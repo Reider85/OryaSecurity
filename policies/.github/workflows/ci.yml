@@ -118,27 +118,39 @@ jobs:
         with:
           version: ${{ env.OPA_VERSION }}
 
-      - name: Build bundle
-        run: opa build . -o bundle.tar.gz
-
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign bundle (cosign keyless)
+      - name: Build bundle + manifest + sign
         run: |
+          # v1.2.3 -> 1.2.3 (manifest version, Prompt 28)
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p bundles dist
+          # Stage .rego only: keeps manifest.json / bundles/ out of the bundle
+          STAGE="$(mktemp -d)"
+          find . -name '*.rego' -not -path './.*' -exec cp --parents {} "${STAGE}" \;
+          opa check --strict "${STAGE}"
+          opa build "${STAGE}" -o dist/bundle.tar.gz
+          python3 scripts/gen_opa_manifest.py \
+            --policies-dir . \
+            --output manifest.json \
+            --version "${VERSION}" \
+            --git-commit "${GITHUB_SHA}"
+          cp manifest.json dist/manifest.json
           cosign sign-blob --yes \
-            --output-signature bundle.tar.gz.sig \
-            --output-certificate bundle.tar.gz.cert \
-            bundle.tar.gz
+            --output-signature dist/bundle.tar.gz.sig \
+            --output-certificate dist/bundle.tar.gz.cert \
+            dist/bundle.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: opa-bundle-${{ github.ref_name }}
           path: |
-            bundle.tar.gz
-            bundle.tar.gz.sig
-            bundle.tar.gz.cert
+            dist/bundle.tar.gz
+            dist/bundle.tar.gz.sig
+            dist/bundle.tar.gz.cert
+            dist/manifest.json
 
       - name: Attach to GitHub Release
         env:
@@ -147,7 +159,7 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --title "Policy bundle ${{ github.ref_name }}" \
             --notes "OPA bundle built from ${{ github.sha }}. Verify with cosign (see README)." \
-            bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert \
+            dist/bundle.tar.gz dist/bundle.tar.gz.sig dist/bundle.tar.gz.cert dist/manifest.json \
           || gh release upload "${{ github.ref_name }}" \
             --clobber \
-            bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert
+            dist/bundle.tar.gz dist/bundle.tar.gz.sig dist/bundle.tar.gz.cert dist/manifest.json

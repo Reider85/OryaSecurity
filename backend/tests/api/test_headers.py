@@ -43,12 +43,19 @@ class FakeCache:
     def __init__(self, entry: dict | None = None) -> None:
         self.entry = entry
 
-    async def get(self, prompt: str):
+    async def get(self, prompt: str, policy_version: str | None = None):
         if self.entry is not None:
             return dict(self.entry), True
         return None, False
 
-    async def set(self, prompt: str, verdict: str, reason: str, rules_matched: list[dict]) -> None:
+    async def set(
+        self,
+        prompt: str,
+        verdict: str,
+        reason: str,
+        rules_matched: list[dict],
+        policy_version: str | None = None,
+    ) -> None:
         if self.entry is None:
             self.entry = {
                 "verdict": verdict,

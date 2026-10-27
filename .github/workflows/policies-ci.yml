@@ -116,6 +116,8 @@ jobs:
     permissions:
       contents: write # create GitHub Release
       id-token: write # cosign keyless (OIDC -> Fulcio)
+    env:
+      POLICY_VERSION: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -125,27 +127,25 @@ jobs:
         with:
           version: ${{ env.OPA_VERSION }}
 
-      - name: Build bundle
-        run: opa build policies/ -o bundle.tar.gz
-
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Sign bundle (cosign keyless)
+      - name: Build bundle + manifest + sign (build_opa_bundle.sh)
         run: |
-          cosign sign-blob --yes \
-            --output-signature bundle.tar.gz.sig \
-            --output-certificate bundle.tar.gz.cert \
-            bundle.tar.gz
+          # policies-v1.2.3 -> 1.2.3 (manifest version, Prompt 28)
+          VERSION="${GITHUB_REF_NAME#policies-v}"
+          bash backend/scripts/build_opa_bundle.sh "${VERSION}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: opa-bundle-${{ github.ref_name }}
           path: |
-            bundle.tar.gz
-            bundle.tar.gz.sig
-            bundle.tar.gz.cert
+            policies/bundles/bundle.tar.gz
+            policies/bundles/bundle.tar.gz.sig
+            policies/bundles/bundle.tar.gz.cert
+            policies/bundles/manifest.json
+            policies/manifest.json
 
       - name: Attach to GitHub Release
         env:
@@ -154,7 +154,28 @@ jobs:
           gh release create "${{ github.ref_name }}" \
             --title "Policy bundle ${{ github.ref_name }}" \
             --notes "OPA bundle built from ${{ github.sha }}. Verify with cosign (see policies/README.md)." \
-            bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert \
+            policies/bundles/bundle.tar.gz \
+            policies/bundles/bundle.tar.gz.sig \
+            policies/bundles/bundle.tar.gz.cert \
+            policies/bundles/manifest.json \
           || gh release upload "${{ github.ref_name }}" \
             --clobber \
-            bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert
+            policies/bundles/bundle.tar.gz \
+            policies/bundles/bundle.tar.gz.sig \
+            policies/bundles/bundle.tar.gz.cert \
+            policies/bundles/manifest.json
+
+      - name: Publish to bundle-service (optional)
+        # Set BUNDLE_UPLOAD_URL (HTTP PUT endpoint of the bundle-service,
+        # e.g. https://bundle.example.internal/bundles/) to auto-publish;
+        # skipped when unset. OPA polls it every 30s and switches atomically.
+        if: ${{ vars.BUNDLE_UPLOAD_URL != '' }}
+        env:
+          BUNDLE_UPLOAD_URL: ${{ vars.BUNDLE_UPLOAD_URL }}
+        run: |
+          for f in bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert manifest.json; do
+            curl --fail --silent --show-error \
+              --request PUT \
+              --data-binary "@policies/bundles/${f}" \
+              "${BUNDLE_UPLOAD_URL%/}/${f}"
+          done

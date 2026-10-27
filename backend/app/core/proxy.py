@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from app.config import settings
 from app.core.audit import write_audit_event, write_event
 from app.core.cache import decision_cache
-from app.core.pdp import decide, scan_text
+from app.core.pdp import decide_with_opa, get_active_policy_version, scan_text
 from app.core.rules.base import RuleMatch
 from app.core.redactor import redact
 from app.models.openai import (
@@ -83,12 +83,14 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
     prompt_text = _extract_prompt_text(request.messages)
     prompt_matches, prompt_hash = scan_text(prompt_text)
 
-    cached, cache_hit = await decision_cache.get(prompt_text)
+    policy_version = await get_active_policy_version()
+    cached, cache_hit = await decision_cache.get(prompt_text, policy_version)
 
     if cached:
         verdict_action = cached["verdict"]
         verdict_reason = cached["reason"]
         verdict_matches = cached["rules_matched"]
+        policy_version = cached.get("policy_version") or policy_version
         logger.info(
             "proxy_cache_hit",
             request_id=request_id,
@@ -96,11 +98,21 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
             verdict=verdict_action,
         )
     else:
-        verdict = decide(prompt_matches)
+        pdp_result = await decide_with_opa(
+            prompt_matches, tenant_id=tenant_id, request_id=request_id
+        )
+        verdict = pdp_result.verdict
+        policy_version = pdp_result.policy_version
         verdict_action = verdict.action
         verdict_reason = verdict.reason
         verdict_matches = [m.to_dict() for m in verdict.rules_matched]
-        await decision_cache.set(prompt_text, verdict_action, verdict_reason, verdict_matches)
+        await decision_cache.set(
+            prompt_text,
+            verdict_action,
+            verdict_reason,
+            verdict_matches,
+            policy_version=policy_version,
+        )
 
     latency_ms = (time.monotonic() - start_time) * 1000
 
@@ -122,6 +134,7 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
             verdict="block",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            policy_version=policy_version,
             prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
         )
@@ -137,6 +150,7 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
         verdict="allow",
         reason=verdict_reason,
         rules_matched=verdict_matches,
+        policy_version=policy_version,
         prompt_text_redacted=redact(prompt_text, prompt_matches),
         latency_ms=latency_ms,
     )
@@ -156,7 +170,10 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
     gen_matches, gen_hash = scan_text(gen_text)
     reasoning_matches, reasoning_hash = scan_text(gen_reasoning) if gen_reasoning else ([], None)
     all_matches = gen_matches + reasoning_matches
-    gen_verdict = decide(all_matches)
+    gen_pdp_result = await decide_with_opa(
+        all_matches, tenant_id=tenant_id, request_id=request_id
+    )
+    gen_verdict = gen_pdp_result.verdict
     gen_verdict_matches = [m.to_dict() for m in gen_verdict.rules_matched]
 
     if gen_verdict.is_block:
@@ -184,6 +201,7 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
             verdict="block",
             reason=f"Generation blocked: {gen_verdict.reason}",
             rules_matched=gen_verdict_matches,
+            policy_version=gen_pdp_result.policy_version,
             prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
             metadata={"direction": "generation"},
@@ -196,6 +214,7 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
             verdict="allow",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            policy_version=policy_version,
             prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
         )
@@ -210,12 +229,14 @@ async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | Non
     prompt_text = _extract_prompt_text(request.messages)
     prompt_matches, prompt_hash = scan_text(prompt_text)
 
-    cached, cache_hit = await decision_cache.get(prompt_text)
+    policy_version = await get_active_policy_version()
+    cached, cache_hit = await decision_cache.get(prompt_text, policy_version)
 
     if cached:
         verdict_action = cached["verdict"]
         verdict_reason = cached["reason"]
         verdict_matches = cached["rules_matched"]
+        policy_version = cached.get("policy_version") or policy_version
         logger.info(
             "proxy_cache_hit",
             request_id=request_id,
@@ -223,11 +244,21 @@ async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | Non
             verdict=verdict_action,
         )
     else:
-        verdict = decide(prompt_matches)
+        pdp_result = await decide_with_opa(
+            prompt_matches, tenant_id=tenant_id, request_id=request_id
+        )
+        verdict = pdp_result.verdict
+        policy_version = pdp_result.policy_version
         verdict_action = verdict.action
         verdict_reason = verdict.reason
         verdict_matches = [m.to_dict() for m in verdict.rules_matched]
-        await decision_cache.set(prompt_text, verdict_action, verdict_reason, verdict_matches)
+        await decision_cache.set(
+            prompt_text,
+            verdict_action,
+            verdict_reason,
+            verdict_matches,
+            policy_version=policy_version,
+        )
 
     latency_ms = (time.monotonic() - start_time) * 1000
 
@@ -249,6 +280,7 @@ async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | Non
             verdict="block",
             reason=verdict_reason,
             rules_matched=verdict_matches,
+            policy_version=policy_version,
             prompt_text_redacted=redact(prompt_text, prompt_matches),
             latency_ms=latency_ms,
         )
@@ -264,6 +296,7 @@ async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | Non
         verdict="allow",
         reason=verdict_reason,
         rules_matched=verdict_matches,
+        policy_version=policy_version,
         prompt_text_redacted=redact(prompt_text, prompt_matches),
         latency_ms=latency_ms,
     )
@@ -448,7 +481,10 @@ async def _forward_to_llm_stream(
                                 gen_matches, gen_hash = scan_text(accumulated_content)
                                 reasoning_matches, reasoning_hash = scan_text(accumulated_reasoning) if accumulated_reasoning else ([], None)
                                 all_matches = gen_matches + reasoning_matches
-                                gen_verdict = decide(all_matches)
+                                gen_pdp_result = await decide_with_opa(
+                                    all_matches, tenant_id=tenant_id, request_id=request_id
+                                )
+                                gen_verdict = gen_pdp_result.verdict
                                 
                                 if gen_verdict.is_block:
                                     # Mask both content and reasoning if blocked
@@ -500,6 +536,7 @@ async def _forward_to_llm_stream(
                                     verdict="allow",
                                     reason="Prompt passed inspection",
                                     rules_matched=verdict_matches,
+                                    policy_version=policy_version,
                                     prompt_text_redacted=redact(prompt_text, prompt_matches),
                                     latency_ms=(time.monotonic() - start_time) * 1000,
                                     metadata={"direction": "stream", "cache_hit": cache_hit},

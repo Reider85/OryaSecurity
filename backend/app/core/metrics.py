@@ -184,6 +184,26 @@ scanner_path_distribution = Counter(
     labelnames=["path"],  # fast | slow | cache_hit
 )
 
+# OPA PDP decisions (EP-12/Prompt 28)
+scanner_pdp_decisions_total = Counter(
+    "scanner_pdp_decisions_total",
+    "PDP decisions by evaluation source and resulting action",
+    labelnames=["source", "action"],  # source: opa | local | local_fallback
+)
+
+scanner_pdp_opa_errors_total = Counter(
+    "scanner_pdp_opa_errors_total",
+    "OPA client errors by type",
+    labelnames=["type"],  # http | decode | manifest | circuit_open
+)
+
+# Info-style gauge: one series per known policy version, value 1 for the active one.
+scanner_policy_version_info = Gauge(
+    "scanner_policy_version_info",
+    "Active OPA policy bundle version (1 = active)",
+    labelnames=["version"],
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",

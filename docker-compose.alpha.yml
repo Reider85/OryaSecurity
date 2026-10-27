@@ -141,16 +141,58 @@ services:
       echo \"[minio-init] bucket $$S3_BUCKET ready\";
       "
 
-  # Override scanner service to use Qdrant cluster
+  # OPA Policy Decision Point (EP-12/Prompt 25 + 28)
+  # Polls bundle-service for versioned bundles every 30s; atomic switch on
+  # new bundle activation (no request interruption).
+  opa:
+    image: openpolicyagent/opa:0.68.0
+    restart: unless-stopped
+    command: >
+      run --server
+      --addr=0.0.0.0:8181
+      --set=services.default.url=http://bundle-service:8081
+      --set=bundles.scanner.service=default
+      --set=bundles.scanner.resource=bundles/bundle.tar.gz
+      --set=bundles.scanner.polling.min_delay_seconds=30
+      --set=bundles.scanner.polling.max_delay_seconds=30
+      --set=bundles.scanner.save_bundle_checksum=true
+    ports:
+      - "8181:8181"
+    depends_on:
+      bundle-service:
+        condition: service_started
+    # No healthcheck: the OPA image is scratch-based (no shell/wget).
+    # Readiness is checked by the scanner's OPA client (fail-open on startup).
+
+  # Static file server for policy bundles (docroot: policies/bundles/)
+  # Serves: /bundles/bundle.tar.gz, /bundles/manifest.json (+ .sig/.cert)
+  bundle-service:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./policies/bundles:/usr/share/nginx/html/bundles:ro
+    ports:
+      - "8081:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # Override scanner service to use Qdrant cluster + OPA PDP
   scanner:
     environment:
       SCANNER_QDRANT_URL: http://qdrant1:6333
+      SCANNER_OPA_URL: http://opa:8181
+      SCANNER_BUNDLE_SERVICE_URL: http://bundle-service:8081
+      SCANNER_PDP_OPA_ENABLED: "true"
     depends_on:
       qdrant1:
         condition: service_started
+      opa:
+        condition: service_started
 
   # Future ALPHA services will be added here:
-  # opa (EP-12/Prompt 25)
   # vault (EP-13/Prompt 31)
   # jaeger, loki, alertmanager (EP-15/Prompts 41, 42, 44)
 

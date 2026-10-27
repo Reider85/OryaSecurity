@@ -28,6 +28,7 @@ class CacheEntry:
     reason: str
     rules_matched: list[dict]
     ts: float
+    policy_version: str | None = None
 
 
 class DecisionCache:
@@ -38,11 +39,16 @@ class DecisionCache:
         self._misses = 0
 
     @staticmethod
-    def _make_key(prompt: str) -> str:
-        return hashlib.sha256(prompt.encode()).hexdigest()
+    def _make_key(prompt: str, policy_version: str | None = None) -> str:
+        # Scoping by policy_version invalidates cached verdicts when the OPA
+        # bundle switches (versioned bundle deployment, EP-12 Prompt 28).
+        raw = f"{policy_version}:{prompt}" if policy_version else prompt
+        return hashlib.sha256(raw.encode()).hexdigest()
 
-    async def get(self, prompt: str) -> tuple[dict | None, bool]:
-        key = self._make_key(prompt)
+    async def get(
+        self, prompt: str, policy_version: str | None = None
+    ) -> tuple[dict | None, bool]:
+        key = self._make_key(prompt, policy_version)
         start_time = time.time()
         
         try:
@@ -80,6 +86,7 @@ class DecisionCache:
                 "reason": data["reason"],
                 "rules_matched": data["rules_matched"],
                 "ts": data["ts"],
+                "policy_version": data.get("policy_version") or policy_version,
             }, True
             
         except Exception as exc:
@@ -97,8 +104,15 @@ class DecisionCache:
             scanner_cache_misses_total.labels(type="decision").inc()
             return None, False
 
-    async def set(self, prompt: str, verdict: str, reason: str, rules_matched: list[dict]) -> None:
-        key = self._make_key(prompt)
+    async def set(
+        self,
+        prompt: str,
+        verdict: str,
+        reason: str,
+        rules_matched: list[dict],
+        policy_version: str | None = None,
+    ) -> None:
+        key = self._make_key(prompt, policy_version)
         now = time.time()
         
         # Prepare JSON value
@@ -106,6 +120,7 @@ class DecisionCache:
             "verdict": verdict,
             "reason": reason,
             "rules_matched": rules_matched,
+            "policy_version": policy_version,
             "ts": now,
             "expires_at": now + self._ttl,
         })

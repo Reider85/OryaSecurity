@@ -11,7 +11,7 @@ import structlog
 from app.models.scan import ScanRequest, ScanResponse, RuleMatchResponse
 from app.core.auth import verify_api_key, AuthInfo
 from app.core.headers import set_scanner_context
-from app.core.pdp import scan_text, decide
+from app.core.pdp import scan_text, decide_with_opa, get_active_policy_version
 from app.core.cache import decision_cache
 from app.core.audit import write_event
 from app.core.redactor import redact
@@ -38,7 +38,8 @@ async def scan_endpoint(
     request_id = str(uuid.uuid4())
     start = time.perf_counter()
 
-    cached, cache_hit = await decision_cache.get(body.prompt)
+    policy_version = await get_active_policy_version()
+    cached, cache_hit = await decision_cache.get(body.prompt, policy_version)
 
     if cache_hit and cached is not None:
         latency_ms = (time.perf_counter() - start) * 1000
@@ -70,7 +71,13 @@ async def scan_endpoint(
         return JSONResponse(content=response.model_dump())
 
     matches, prompt_hash = scan_text(body.prompt)
-    verdict = decide(matches)
+    pdp_result = await decide_with_opa(
+        matches,
+        tenant_id=auth_info.tenant_id or body.tenant_id,
+        request_id=request_id,
+    )
+    verdict = pdp_result.verdict
+    policy_version = pdp_result.policy_version
     latency_ms = (time.perf_counter() - start) * 1000
 
     rules_matched_dicts = [m.to_dict() for m in matches]
@@ -80,6 +87,7 @@ async def scan_endpoint(
         verdict=verdict.action,
         reason=verdict.reason,
         rules_matched=rules_matched_dicts,
+        policy_version=policy_version,
     )
 
     try:
@@ -90,6 +98,7 @@ async def scan_endpoint(
             verdict=verdict.action,
             reason=verdict.reason,
             rules_matched=rules_matched_dicts,
+            policy_version=policy_version,
             prompt_text_redacted=redact(body.prompt, matches),
             latency_ms=latency_ms,
             metadata=body.metadata,

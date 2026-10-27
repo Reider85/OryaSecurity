@@ -17,7 +17,7 @@ class FakeCache:
         self.hit = hit
         self.set_calls: list[dict] = []
 
-    async def get(self, prompt: str):
+    async def get(self, prompt: str, policy_version: str | None = None):
         if self.hit:
             return (
                 {
@@ -25,14 +25,28 @@ class FakeCache:
                     "reason": "cached",
                     "rules_matched": [],
                     "ts": 0.0,
+                    "policy_version": policy_version,
                 },
                 True,
             )
         return None, False
 
-    async def set(self, prompt: str, verdict: str, reason: str, rules_matched: list[dict]) -> None:
+    async def set(
+        self,
+        prompt: str,
+        verdict: str,
+        reason: str,
+        rules_matched: list[dict],
+        policy_version: str | None = None,
+    ) -> None:
         self.set_calls.append(
-            {"prompt": prompt, "verdict": verdict, "reason": reason, "rules_matched": rules_matched}
+            {
+                "prompt": prompt,
+                "verdict": verdict,
+                "reason": reason,
+                "rules_matched": rules_matched,
+                "policy_version": policy_version,
+            }
         )
 
 
@@ -136,3 +150,89 @@ class TestScanAuditWiring:
         assert resp.status_code == 200
         assert resp.json()["cache_hit"] is True
         assert audit.calls == []
+
+
+class TestPolicyVersionWiring:
+    """Every scan decision carries the active policy version (Prompt 28)."""
+
+    def test_audit_receives_settings_fallback_version(
+        self, test_client: TestClient, auth_override, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.config import settings
+        from app.core.pdp.opa_client import set_opa_client
+
+        set_opa_client(None)
+        audit = RecordingAudit()
+        cache = FakeCache()
+        monkeypatch.setattr(scan_api, "decision_cache", cache)
+        monkeypatch.setattr(scan_api, "write_event", audit.write_event)
+
+        resp = test_client.post("/scan", json={"prompt": "hi"})
+
+        assert resp.status_code == 200
+        assert audit.calls[0]["policy_version"] == settings.policy_version
+        assert cache.set_calls[0]["policy_version"] == settings.policy_version
+
+    def test_audit_receives_active_bundle_version(
+        self, test_client: TestClient, auth_override, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.core.pdp.opa_client import set_opa_client
+
+        class _FakeOPAClient:
+            breaker_state = "closed"
+
+            async def get_active_policy_version(self) -> str:
+                return "4.5.6"
+
+            async def evaluate(self, input_doc: dict):
+                from app.core.pdp.opa_client import OPADecision
+
+                return OPADecision(allowed=True, deny_reasons=[])
+
+        set_opa_client(_FakeOPAClient())  # type: ignore[arg-type]
+        try:
+            audit = RecordingAudit()
+            cache = FakeCache()
+            monkeypatch.setattr(scan_api, "decision_cache", cache)
+            monkeypatch.setattr(scan_api, "write_event", audit.write_event)
+
+            resp = test_client.post("/scan", json={"prompt": "hi"})
+
+            assert resp.status_code == 200
+            assert audit.calls[0]["policy_version"] == "4.5.6"
+            assert cache.set_calls[0]["policy_version"] == "4.5.6"
+        finally:
+            set_opa_client(None)
+
+    def test_cache_lookup_is_version_scoped(
+        self, test_client: TestClient, auth_override, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict = {}
+
+        class _VersionedCache(FakeCache):
+            async def get(self, prompt: str, policy_version: str | None = None):
+                seen["policy_version"] = policy_version
+                return None, False
+
+        from app.core.pdp.opa_client import set_opa_client
+
+        class _FakeOPAClient:
+            async def get_active_policy_version(self) -> str:
+                return "7.0.0"
+
+            async def evaluate(self, input_doc: dict):
+                from app.core.pdp.opa_client import OPADecision
+
+                return OPADecision(allowed=True, deny_reasons=[])
+
+        set_opa_client(_FakeOPAClient())  # type: ignore[arg-type]
+        try:
+            monkeypatch.setattr(scan_api, "decision_cache", _VersionedCache())
+            monkeypatch.setattr(scan_api, "write_event", RecordingAudit().write_event)
+
+            resp = test_client.post("/scan", json={"prompt": "hi"})
+
+            assert resp.status_code == 200
+            assert seen["policy_version"] == "7.0.0"
+        finally:
+            set_opa_client(None)
