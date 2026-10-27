@@ -1,0 +1,18 @@
+# Build artifacts (produced by `make bundle` / CI)
+bundles/
+dist/
+*.tar.gz
+
+# cosign outputs
+*.sig
+*.cert
+*.bundle
+
+# OPA / tooling caches
+.opa-cache/
+opa.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

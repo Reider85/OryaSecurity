@@ -1,0 +1,160 @@
+# CI for Rego policies in the monorepo (Prompt 27).
+# Mirrors policies/.github/workflows/ci.yml — GitHub ignores nested .github/workflows,
+# so the same checks are wired here with working-directory: policies.
+# Keep both files in sync.
+#
+# Tag convention in the monorepo: policies-v* (e.g. policies-v1.0.0).
+
+name: Policies CI
+
+on:
+  pull_request:
+    paths:
+      - "policies/**"
+      - ".github/workflows/policies-ci.yml"
+  push:
+    branches: [main]
+    tags: ["policies-v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: policies-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPA_VERSION: "0.68.0"
+
+jobs:
+  validate:
+    name: opa check / test / fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: policies
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OPA
+        uses: openpolicyagent/setup-opa@v2
+        with:
+          version: ${{ env.OPA_VERSION }}
+
+      - name: opa check (strict)
+        run: opa check --strict .
+
+      - name: opa test (unit tests)
+        run: opa test . -v
+
+      - name: opa fmt --fail (format check)
+        run: opa fmt --fail .
+
+  verify-commits:
+    name: Verify commit signatures
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Verify commits touching policies/ are signed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            // Monorepo: only enforce signatures on commits that touch policies/.
+            const ONLY_PATHS = "policies/";
+
+            let shas = [];
+            if (context.payload.pull_request) {
+              const commits = await github.paginate(github.rest.pulls.listCommits, {
+                owner, repo,
+                pull_number: context.payload.pull_request.number,
+                per_page: 100,
+              });
+              shas = commits.map((c) => c.sha);
+            } else {
+              const before = context.payload.before;
+              const head = context.sha;
+              if (before && !/^0{40}$/.test(before)) {
+                const cmp = await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: `${before}...${head}`,
+                });
+                shas = cmp.data.commits.map((c) => c.sha);
+              } else {
+                shas = [head];
+              }
+            }
+
+            const failures = [];
+            for (const sha of shas) {
+              const { data } = await github.rest.repos.getCommit({ owner, repo, ref: sha });
+              // Merge commits are exempt, matching GitHub's "Require signed commits" semantics.
+              if (data.parents.length > 1) continue;
+              if (ONLY_PATHS && !(data.files || []).some((f) => f.filename.startsWith(ONLY_PATHS))) {
+                continue;
+              }
+              const ver = data.commit.verification;
+              if (!ver || !ver.verified) {
+                const reason = ver ? ver.reason : "no verification data";
+                failures.push(`${sha.slice(0, 7)} ${data.commit.message.split("\n")[0]} — ${reason}`);
+              }
+            }
+
+            if (failures.length > 0) {
+              core.setFailed(`Unsigned commits touching policies/:\n${failures.join("\n")}`);
+            } else {
+              core.info(`Checked ${shas.length} commit(s): signed-commit policy satisfied.`);
+            }
+
+  bundle:
+    name: Build + sign OPA bundle
+    if: startsWith(github.ref, 'refs/tags/policies-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # create GitHub Release
+      id-token: write # cosign keyless (OIDC -> Fulcio)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OPA
+        uses: openpolicyagent/setup-opa@v2
+        with:
+          version: ${{ env.OPA_VERSION }}
+
+      - name: Build bundle
+        run: opa build policies/ -o bundle.tar.gz
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign bundle (cosign keyless)
+        run: |
+          cosign sign-blob --yes \
+            --output-signature bundle.tar.gz.sig \
+            --output-certificate bundle.tar.gz.cert \
+            bundle.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opa-bundle-${{ github.ref_name }}
+          path: |
+            bundle.tar.gz
+            bundle.tar.gz.sig
+            bundle.tar.gz.cert
+
+      - name: Attach to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "Policy bundle ${{ github.ref_name }}" \
+            --notes "OPA bundle built from ${{ github.sha }}. Verify with cosign (see policies/README.md)." \
+            bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert \
+          || gh release upload "${{ github.ref_name }}" \
+            --clobber \
+            bundle.tar.gz bundle.tar.gz.sig bundle.tar.gz.cert

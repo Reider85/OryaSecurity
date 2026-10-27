@@ -1,0 +1,47 @@
+#!/bin/sh
+# Pre-commit hook for policies (Prompt 27): opa check on staged Rego + format gate.
+# Install with: make install-hooks   (sets core.hooksPath -> .githooks)
+set -eu
+
+# Only run when at least one staged .rego file is present.
+STAGED_REGO=$(git diff --cached --name-only --diff-filter=ACM -- '*.rego' || true)
+if [ -z "$STAGED_REGO" ]; then
+    exit 0
+fi
+
+# Locate OPA: $OPA override -> PATH -> monorepo-local binary.
+if [ -n "${OPA:-}" ]; then
+    :
+elif command -v opa >/dev/null 2>&1; then
+    OPA=opa
+elif [ -x "../backend/.bin/opa_linux_amd64_static" ]; then
+    OPA="../backend/.bin/opa_linux_amd64_static"
+elif [ -f "../backend/.bin/opa_windows_amd64.exe" ]; then
+    OPA="../backend/.bin/opa_windows_amd64.exe"
+else
+    echo "pre-commit: OPA binary not found." >&2
+    echo "pre-commit: install OPA or run: python backend/scripts/fetch_opa.py (monorepo)" >&2
+    exit 1
+fi
+
+# Policy root: monorepo layout (policies/) or standalone repo layout (.).
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+if [ -d "policies/global" ] || [ -d "policies/tenants" ]; then
+    POLICY_DIR="policies"
+else
+    POLICY_DIR="."
+fi
+
+echo "pre-commit: opa check --strict $POLICY_DIR"
+"$OPA" check --strict "$POLICY_DIR"
+
+FAILED=0
+for f in $STAGED_REGO; do
+    echo "pre-commit: opa fmt --fail $f"
+    if ! "$OPA" fmt --fail "$f" >/dev/null; then
+        echo "pre-commit: $f is not formatted — run: opa fmt -w $f" >&2
+        FAILED=1
+    fi
+done
+exit "$FAILED"

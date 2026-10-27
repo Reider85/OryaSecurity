@@ -1,0 +1,5 @@
+# SecOps owns every policy change (Prompt 27).
+# Branch protection on main requires 2 approvers + code owner review.
+# NOTE: replace @secops-team with a real GitHub team or user handle before
+# enabling "Require review from Code Owners".
+/* @secops-team

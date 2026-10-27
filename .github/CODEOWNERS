@@ -1,0 +1,5 @@
+# Code ownership for the OryaSecurity monorepo.
+# Prompt 27: SecOps owns OPA policy changes — main requires 2 approvers + code owner review.
+# NOTE: replace @secops-team with a real GitHub team or user handle before enabling
+# "Require review from Code Owners" on branch protection.
+/policies/* @secops-team
