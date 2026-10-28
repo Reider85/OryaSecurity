@@ -17,6 +17,9 @@ Bundle ids are derived from the directory that holds the .rego files
 sorted (relative path, content) pairs of that directory so the manifest is
 reproducible for a given set of policies.
 
+Unit-test files (*_test.rego, Prompt 30) are excluded from both bundle
+discovery and hashing — they never ship in a release bundle.
+
 Usage:
     python backend/scripts/gen_opa_manifest.py \
         --policies-dir policies \
@@ -35,9 +38,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def _is_policy_file(path: Path) -> bool:
+    """True for shippable .rego files; unit tests (*_test.rego) are excluded."""
+    return path.suffix == ".rego" and not path.stem.endswith("_test")
+
+
 def _sha256_of_dir(directory: Path) -> str:
-    """Deterministic hash of all .rego files in *directory* (sorted by relpath)."""
-    files = sorted(directory.rglob("*.rego"))
+    """Deterministic hash of all policy .rego files in *directory* (sorted by relpath)."""
+    files = sorted(p for p in directory.rglob("*.rego") if _is_policy_file(p))
     digest = hashlib.sha256()
     for file in files:
         rel = file.relative_to(directory).as_posix().encode("utf-8")
@@ -70,6 +78,8 @@ def discover_bundles(policies_dir: Path) -> list[dict]:
 
         if top.name == "tenants":
             for tenant_file in sorted(top.glob("*.rego")):
+                if not _is_policy_file(tenant_file):
+                    continue  # *_test.rego (Prompt 30) is not a bundle
                 stem = tenant_file.stem
                 bundles.append(
                     {
@@ -87,7 +97,7 @@ def discover_bundles(policies_dir: Path) -> list[dict]:
                     }
                 )
         else:
-            if not any(top.rglob("*.rego")):
+            if not any(_is_policy_file(p) for p in top.rglob("*.rego")):
                 continue
             bundles.append(
                 {

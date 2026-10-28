@@ -28,7 +28,9 @@ check: ## Validate Rego syntax and semantics (strict mode)
 	$(OPA) check --strict .
 
 test: ## Run Rego unit tests (policies/*_test.rego)
-	$(OPA) test . -v
+	# --ignore bundles: build artifacts (bundles/manifest.json) collide with
+	# policies/manifest.json when OPA loads *.json as data documents.
+	$(OPA) test . -v --ignore bundles
 
 fmt: ## Rewrite Rego files in canonical format
 	$(OPA) fmt -w .

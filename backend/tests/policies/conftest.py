@@ -46,9 +46,30 @@ def opa_binary() -> str:
     return str(opa_path)
 
 
+def _load_all_policies(client: OPAClient) -> None:
+    """PUT every policies/*.rego into the running OPA server.
+
+    Loading happens HERE (opa_server fixture) and not in opa_client: the
+    subprocess runs with cwd=backend/ (no .rego there), so `opa run --server`
+    starts empty. Any fixture that only needs the server (e.g. the app
+    OPAClient in test_bundle_deployment.py) must still see real policies.
+    """
+    policies_dir = Path(__file__).parent.parent.parent.parent / "policies"
+    if not policies_dir.exists():
+        pytest.fail("policies directory not found")
+
+    for rego_file in policies_dir.rglob("*.rego"):
+        rel_path = rego_file.relative_to(policies_dir)
+        policy_id = str(rel_path.with_suffix("")).replace("\\", "/")
+        try:
+            client.save_policy(policy_id, rego_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            pytest.fail(f"Failed to load policy {policy_id}: {e}")
+
+
 @pytest.fixture(scope="session")
 def opa_server(opa_binary: str) -> Generator[str, None, None]:
-    """Start OPA server in a subprocess."""
+    """Start OPA server in a subprocess (with all repo policies loaded)."""
     # Find free port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
@@ -58,8 +79,11 @@ def opa_server(opa_binary: str) -> Generator[str, None, None]:
     cmd = [opa_binary, "run", "--server", "--addr", f"localhost:{port}"]
     process = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        # DEVNULL, not PIPE: OPA logs every request to stderr and nobody drains
+        # the pipe — once the ~4KB Windows pipe buffer fills, the server blocks
+        # on write and stops responding (client hangs for its 15000s timeout).
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     )
     
@@ -77,7 +101,9 @@ def opa_server(opa_binary: str) -> Generator[str, None, None]:
         process.terminate()
         process.wait()
         pytest.fail("OPA server did not start in time")
-    
+
+    _load_all_policies(client)
+
     yield f"http://localhost:{port}"
     
     # Clean up
@@ -87,27 +113,8 @@ def opa_server(opa_binary: str) -> Generator[str, None, None]:
 
 @pytest.fixture(scope="session")
 def opa_client(opa_server: str, opa_binary: str) -> OPAClient:
-    """OPA client with all policies loaded."""
-    client = OPAClient(opa_server)
-    
-    # Load all .rego files from policies directory
-    policies_dir = Path(__file__).parent.parent.parent.parent / "policies"
-    if not policies_dir.exists():
-        pytest.fail("policies directory not found")
-    
-    for rego_file in policies_dir.rglob("*.rego"):
-        rel_path = rego_file.relative_to(policies_dir)
-        policy_id = str(rel_path.with_suffix("")).replace("\\", "/")
-        
-        try:
-            with open(rego_file, "r", encoding="utf-8") as f:
-                policy_content = f.read()
-            
-            client.save_policy(policy_id, policy_content)
-        except Exception as e:
-            pytest.fail(f"Failed to load policy {policy_id}: {e}")
-    
-    return client
+    """OPA client bound to the session server (policies pre-loaded by opa_server)."""
+    return OPAClient(opa_server)
 
 
 @pytest.fixture

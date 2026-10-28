@@ -63,9 +63,10 @@ echo "[bundle] opa check --strict"
 "${OPA_BIN}" check --strict "${POLICIES_DIR}"
 
 # --- 2. stage .rego files only ----------------------------------------------
+# *_test.rego (Prompt 30) is excluded: unit tests never ship in a bundle.
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
-(cd "${POLICIES_DIR}" && find . -name '*.rego' -not -path './.*' -print0 |
+(cd "${POLICIES_DIR}" && find . -name '*.rego' -not -name '*_test.rego' -not -path './.*' -print0 |
   while IFS= read -r -d '' f; do
     mkdir -p "${STAGE}/$(dirname "${f}")"
     cp "${f}" "${STAGE}/${f}"

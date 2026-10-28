@@ -12,6 +12,15 @@ Rego-политики для OPA Policy Decision Point (ADR-0004) сканера
 - CI: `opa test` (unit tests), `opa fmt --fail` (format check)
 - Релизы: теги `v1.0.0`, `v1.1.0`, … → bundle собирается и подписывается (cosign)
 
+## Unit-тесты (Prompt 30)
+
+Rego-тесты лежат рядом с политиками: `policies/*_test.rego` (тот же `package`).
+Запуск: `opa test policies/ -v --ignore bundles` (или `make test`). CI на каждый
+PR выполняет `opa test` и падает, если хоть один тест failing.
+
+Файлы `*_test.rego` **не попадают** в release bundle и в `manifest.json`
+(исключены в `build_opa_bundle.sh`, CI bundle job и `scripts/gen_opa_manifest.py`).
+
 ## Структура
 
 ```
@@ -22,9 +31,12 @@ policies/
 ├── .githooks/pre-commit    # opa check --strict + opa fmt --fail
 ├── global/                 # политики, общие для всех tenant'ов
 │   ├── default_actions.rego
-│   └── owasp_top10.rego
+│   ├── default_actions_test.rego   # opa test (Prompt 30)
+│   ├── owasp_top10.rego
+│   └── owasp_top10_test.rego
 ├── tenants/                # per-tenant политики
-│   └── default.rego
+│   ├── default.rego
+│   └── default_test.rego   # opa test (Prompt 30)
 ├── scripts/
 │   ├── setup_branch_protection.sh
 │   └── publish_repo.sh
@@ -43,18 +55,23 @@ policies/
 ```sh
 make              # fmt-check + check + test
 make check        # opa check --strict .
-make test         # opa test . -v
+make test         # opa test . -v --ignore bundles
 make fmt          # opa fmt -w .   (переписать в канонический формат)
 make fmt-check    # opa fmt --fail .
 make bundle       # opa build . -o bundle.tar.gz
 make install-hooks  # git config core.hooksPath .githooks
 ```
 
+> `--ignore bundles` в `make test` нужен после `make bundle`: OPA загружает
+> `*.json` из дерева как data-документы, и `bundles/manifest.json` конфликтует
+> с `policies/manifest.json` («merge error»). В CI артефактов сборки нет,
+> поэтому в workflows команда идёт без флага.
+
 Без `make`:
 
 ```sh
 opa check --strict .
-opa test . -v
+opa test . -v --ignore bundles
 opa fmt --fail .
 ```
 
@@ -63,7 +80,7 @@ opa fmt --fail .
 ```powershell
 $opa = "backend\.bin\opa_windows_amd64.exe"
 & $opa check --strict policies/
-& $opa test policies/
+& $opa test policies/ --ignore bundles
 & $opa fmt --fail policies/
 ```
 

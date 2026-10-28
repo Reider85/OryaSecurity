@@ -126,9 +126,9 @@ jobs:
           # v1.2.3 -> 1.2.3 (manifest version, Prompt 28)
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p bundles dist
-          # Stage .rego only: keeps manifest.json / bundles/ out of the bundle
+          # Stage .rego only: keeps manifest.json / bundles/ and *_test.rego (Prompt 30) out of the bundle
           STAGE="$(mktemp -d)"
-          find . -name '*.rego' -not -path './.*' -exec cp --parents {} "${STAGE}" \;
+          find . -name '*.rego' -not -name '*_test.rego' -not -path './.*' -exec cp --parents {} "${STAGE}" \;
           opa check --strict "${STAGE}"
           opa build "${STAGE}" -o dist/bundle.tar.gz
           python3 scripts/gen_opa_manifest.py \
