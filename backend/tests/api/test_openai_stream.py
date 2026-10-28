@@ -338,3 +338,125 @@ class TestOpenAIStreamEndpoint:
         response2 = client.post("/v2/chat/completions", json=sample_request, headers=auth_headers)
         
         assert response1.headers["X-Request-Id"] != response2.headers["X-Request-Id"]
+
+
+class TestStreamDetokenization:
+    """EP-13/Prompt 33: tokens echoed by the LLM are restored on the way out,
+    including tokens split across upstream chunks (ADR-0007)."""
+
+    def _sse_contents(self, text: str) -> list[str]:
+        contents = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data in ("[DONE]", ""):
+                continue
+            try:
+                event = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            for choice in event.get("choices") or []:
+                delta = choice.get("delta") or {}
+                if delta.get("content"):
+                    contents.append(delta["content"])
+        return contents
+
+    def test_echoed_token_restored_end_to_end(self):
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from app.core.auth import AuthInfo
+        from app.core.redaction.vault_client import set_vault_client
+
+        # Built without the lifespan context on purpose: the file's `client`
+        # fixture runs the full startup, which in the full-suite run fights
+        # over the event loop with the session-scoped DB fixtures (the same
+        # pre-existing ERROR hits every TestOpenAIStreamEndpoint test). This
+        # test needs neither startup nor shutdown.
+        client = TestClient(app, raise_server_exceptions=False)
+
+        original_stream = httpx.AsyncClient.stream
+        transport = MockTransport("tests/fixtures/streaming/token_stream.jsonl")
+
+        class _StreamCM:
+            """Async context manager wrapping the mock streaming response.
+
+            ``MockTransport.handle_request`` is a coroutine function, so the
+            response is materialized on entry — mirroring the real
+            ``client.stream(...)`` lifecycle.
+            """
+
+            def __init__(self, response_coro):
+                self._response_coro = response_coro
+                self._response: httpx.Response | None = None
+
+            async def __aenter__(self) -> httpx.Response:
+                self._response = await self._response_coro
+                return self._response
+
+            async def __aexit__(self, *exc_info) -> bool:
+                if self._response is not None:
+                    await self._response.aclose()
+                return False
+
+        def _fake_stream(self, method, url, **kwargs):
+            # Match the real client.stream(method, url, **kwargs) contract;
+            # httpx.Request does not take `timeout` (it belongs to the call).
+            kwargs.pop("timeout", None)
+            return _StreamCM(
+                transport.handle_request(httpx.Request(method, url, **kwargs))
+            )
+
+        httpx.AsyncClient.stream = _fake_stream
+
+        class _FakeVault:
+            async def decode(self, token, *, context=None):
+                from app.core.redaction.vault_client import VaultResult
+
+                if token == "vault-token-42":
+                    return VaultResult(
+                        ok=True, value="123-45-6789", engine="tokenization"
+                    )
+                return VaultResult(ok=False, error="vault_decode_failed")
+
+            async def encode(self, plaintext, *, context=None):
+                from app.core.redaction.vault_client import VaultResult
+
+                return VaultResult(ok=True, value="vt-echo", engine="tokenization")
+
+        async def _auth_ok(token, request=None) -> AuthInfo:
+            return AuthInfo(api_key=token, tenant_id="default")
+
+        set_vault_client(_FakeVault())  # type: ignore[arg-type]
+        try:
+            # No startup means no bootstrap of API keys — auth is stubbed.
+            with patch(
+                "app.core.auth.authenticate_api_key",
+                new=_auth_ok,
+            ):
+                response = client.post(
+                    "/v2/chat/completions",
+                    json={
+                        "model": "gpt-3.5-turbo",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "stream": True,
+                    },
+                    headers={"Authorization": "Bearer test-key"},
+                )
+        finally:
+            httpx.AsyncClient.stream = original_stream
+            set_vault_client(None)
+
+        assert response.status_code == 200
+        contents = self._sse_contents(response.text)
+        joined = "".join(contents)
+        # The raw token never reaches the client — split across two chunks
+        # upstream, restored before each delta is forwarded.
+        assert "<SSN_T_" not in joined
+        assert "123-45-6789" in joined
+        assert "Your SSN is 123-45-6789 and done." == joined

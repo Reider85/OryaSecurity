@@ -1,0 +1,4 @@
+data: {"id": "chatcmpl-token", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Your SSN is <SSN_T_vau"}, "finish_reason": null}]}
+data: {"id": "chatcmpl-token", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": "lt-token-42> and done."}, "finish_reason": null}]}
+data: {"id": "chatcmpl-token", "object": "chat.completion.chunk", "created": 1712369374, "model": "gpt-3.5-turbo", "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}]}
+data: [DONE]

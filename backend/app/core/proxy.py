@@ -14,6 +14,7 @@ from app.core.cache import decision_cache
 from app.core.pdp import decide_with_opa, get_active_policy_version, scan_text
 from app.core.rules.base import RuleMatch
 from app.core.redactor import redact
+from app.core.redaction.detokenizer import StreamingDetokenizer, detokenize_text
 from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON, redact_messages_for_llm
 from app.models.openai import (
     ChatCompletionChoice,
@@ -241,6 +242,20 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
             latency_ms=latency_ms,
         )
 
+        # Reverse tokenization on the response path (EP-13/Prompt 33): the LLM
+        # often echoes the prompt-side tokens back. Scan above runs on the
+        # *tokenized* text (an echoed token is not PII, so it never blocks
+        # itself); only an allowed response is restored for the end user.
+        # Fail-open per ADR-0008: a token that cannot be decoded stays as-is.
+        if llm_response.choices:
+            message = llm_response.choices[0].message
+            if message.content:
+                message.content = await detokenize_text(message.content, tenant_id)
+            if message.reasoning_content:
+                message.reasoning_content = await detokenize_text(
+                    message.reasoning_content, tenant_id
+                )
+
     return llm_response
 
 
@@ -343,7 +358,18 @@ async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | Non
         latency_ms=latency_ms,
     )
 
-    return await _forward_to_llm_stream(request, request_id)
+    return await _forward_to_llm_stream(
+        request,
+        request_id,
+        tenant_id=tenant_id,
+        prompt_hash=prompt_hash,
+        verdict_matches=verdict_matches,
+        policy_version=policy_version,
+        prompt_text=prompt_text,
+        prompt_matches=prompt_matches,
+        start_time=start_time,
+        cache_hit=cache_hit,
+    )
 
 
 async def _forward_to_llm(
@@ -416,8 +442,26 @@ async def _forward_to_llm(
 
 
 async def _forward_to_llm_stream(
-    request: ChatCompletionRequest, request_id: str
+    request: ChatCompletionRequest,
+    request_id: str,
+    *,
+    tenant_id: str | None = None,
+    prompt_hash: str = "",
+    verdict_matches: list | None = None,
+    policy_version: str | None = None,
+    prompt_text: str = "",
+    prompt_matches: list | None = None,
+    start_time: float | None = None,
+    cache_hit: bool = False,
 ) -> StreamingResponse:
+    # The stream generator closes over these for the finish_reason audit write
+    # and the response-side detokenization (they were previously unresolved
+    # names, crashing the branch at runtime).
+    if start_time is None:
+        start_time = time.monotonic()
+    verdict_matches = verdict_matches or []
+    prompt_matches = prompt_matches or []
+
     payload = _build_forward_payload(request)
     path = settings.llm_api_path if settings.llm_api_path.startswith("/") else f"/{settings.llm_api_path}"
     url = f"{settings.llm_provider_url.rstrip('/')}{path}"
@@ -471,7 +515,14 @@ async def _forward_to_llm_stream(
         current_model = payload.get("model", "unknown")
         accumulated_content = ""
         accumulated_reasoning = ""
-        
+        # Reverse tokenization on the response path (EP-13/Prompt 33): hold a
+        # token split across deltas until it closes, emit the rest live
+        # (ADR-0007). One buffer per field — content and reasoning are
+        # independent streams.
+        content_detok = StreamingDetokenizer(tenant_id=tenant_id)
+        reasoning_detok = StreamingDetokenizer(tenant_id=tenant_id)
+        full_sent = False  # final accumulated chunk already covers the tails
+
         async for line in response.aiter_lines():
             line = line.strip()
             if not line:
@@ -480,6 +531,30 @@ async def _forward_to_llm_stream(
             if line.startswith("data: "):
                 data_str = line[6:]
                 if data_str == "[DONE]":
+                    if not full_sent:
+                        # Stream ended without a finish_reason chunk: release
+                        # whatever the buffers still hold, then close.
+                        tail_content = await content_detok.flush()
+                        tail_reasoning = await reasoning_detok.flush()
+                        if tail_content or tail_reasoning:
+                            tail_response = ChatCompletionStreamResponse(
+                                id=current_id,
+                                object="chat.completion.chunk",
+                                created=current_created,
+                                model=current_model,
+                                choices=[
+                                    ChatCompletionStreamChoice(
+                                        index=0,
+                                        delta=ChatCompletionChoiceDelta(
+                                            role=None,
+                                            content=tail_content or None,
+                                            reasoning_content=tail_reasoning or None,
+                                        ),
+                                        finish_reason=None,
+                                    )
+                                ],
+                            )
+                            yield f"data: {tail_response.model_dump_json()}\n\n"
                     # Final chunk
                     yield f"data: {json.dumps({'id': current_id, 'object': 'chat.completion.chunk', 'created': current_created, 'model': current_model, 'choices': []})}\n\n"
                     break
@@ -495,6 +570,15 @@ async def _forward_to_llm_stream(
                             
                             accumulated_content += content
                             accumulated_reasoning += reasoning_content
+
+                            out_content = (
+                                await content_detok.feed(content) if content else ""
+                            )
+                            out_reasoning = (
+                                await reasoning_detok.feed(reasoning_content)
+                                if reasoning_content
+                                else ""
+                            )
                             
                             # Create stream response
                             stream_response = ChatCompletionStreamResponse(
@@ -507,8 +591,8 @@ async def _forward_to_llm_stream(
                                         index=choice.get("index", 0),
                                         delta=ChatCompletionChoiceDelta(
                                             role=delta.get("role"),
-                                            content=content,
-                                            reasoning_content=reasoning_content if reasoning_content else None,
+                                            content=out_content,
+                                            reasoning_content=out_reasoning if out_reasoning else None,
                                         ),
                                         finish_reason=choice.get("finish_reason"),
                                     )
@@ -552,7 +636,20 @@ async def _forward_to_llm_stream(
                                         ]
                                     )
                                 else:
-                                    # Send final chunk with accumulated content
+                                    # Send final chunk with accumulated content,
+                                    # fully restored (Prompt 33): the client
+                                    # gets the original values back, while the
+                                    # scan above ran on the tokenized text.
+                                    final_content = await detokenize_text(
+                                        accumulated_content, tenant_id
+                                    )
+                                    final_reasoning = (
+                                        await detokenize_text(
+                                            accumulated_reasoning, tenant_id
+                                        )
+                                        if accumulated_reasoning
+                                        else None
+                                    )
                                     final_stream_response = ChatCompletionStreamResponse(
                                         id=current_id,
                                         object="chat.completion.chunk",
@@ -563,13 +660,19 @@ async def _forward_to_llm_stream(
                                                 index=choice.get("index", 0),
                                                 delta=ChatCompletionChoiceDelta(
                                                     role=None,
-                                                    content=accumulated_content,
-                                                    reasoning_content=accumulated_reasoning if accumulated_reasoning else None,
+                                                    content=final_content,
+                                                    reasoning_content=final_reasoning,
                                                 ),
                                                 finish_reason=choice.get("finish_reason"),
                                             )
                                         ]
                                     )
+                                # The final chunk carries the whole text, so any
+                                # tails still held by the delta buffers are
+                                # already represented — drop them, don't double-send.
+                                content_detok.discard()
+                                reasoning_detok.discard()
+                                full_sent = True
                                 # Write audit event for successful stream completion
                                 await write_event(
                                     request_id=request_id,
@@ -589,6 +692,31 @@ async def _forward_to_llm_stream(
                 except json.JSONDecodeError:
                     logger.warning("proxy_stream_invalid_json", request_id=request_id, line=line)
                     continue
+
+        if not full_sent:
+            # Upstream closed without [DONE] or finish_reason: don't strand
+            # text the buffers held back.
+            tail_content = await content_detok.flush()
+            tail_reasoning = await reasoning_detok.flush()
+            if tail_content or tail_reasoning:
+                tail_response = ChatCompletionStreamResponse(
+                    id=current_id,
+                    object="chat.completion.chunk",
+                    created=current_created,
+                    model=current_model,
+                    choices=[
+                        ChatCompletionStreamChoice(
+                            index=0,
+                            delta=ChatCompletionChoiceDelta(
+                                role=None,
+                                content=tail_content or None,
+                                reasoning_content=tail_reasoning or None,
+                            ),
+                            finish_reason=None,
+                        )
+                    ],
+                )
+                yield f"data: {tail_response.model_dump_json()}\n\n"
     
     return StreamingResponse(
         generate_stream(),

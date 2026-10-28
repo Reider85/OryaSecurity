@@ -498,11 +498,13 @@ _PROMPT_WITH_ALLOWLISTED_PII = "my login is user_abcdef1234"
 
 
 class _FakeVault:
-    """Duck-typed VaultClient.encode for the redactor."""
+    """Duck-typed VaultClient encode/decode for redactor + detokenizer."""
 
     def __init__(self, fail: bool = False):
         self.fail = fail
         self.calls = 0
+        self.decode_calls: list[str] = []
+        self.registry: dict[str, str] = {}
 
     async def encode(self, plaintext, *, context=None):
         from app.core.redaction.vault_client import VaultResult
@@ -510,7 +512,21 @@ class _FakeVault:
         self.calls += 1
         if self.fail:
             return VaultResult(ok=False, error="circuit_open")
-        return VaultResult(ok=True, value=f"vt{self.calls}", engine="tokenization")
+        token = f"vt{self.calls}"
+        # Round-trip friendly: remember what this token stands for.
+        self.registry[token] = plaintext
+        return VaultResult(ok=True, value=token, engine="tokenization")
+
+    async def decode(self, token, *, context=None):
+        from app.core.redaction.vault_client import VaultResult
+
+        self.decode_calls.append(token)
+        if self.fail:
+            return VaultResult(ok=False, error="circuit_open")
+        value = self.registry.get(token)
+        if value is None:
+            return VaultResult(ok=False, error="vault_decode_failed: unknown token")
+        return VaultResult(ok=True, value=value, engine="tokenization")
 
 
 class TestProxyRedaction:
@@ -591,5 +607,235 @@ class TestProxyRedaction:
             assert exc_info.value.status_code == 403
             assert exc_info.value.detail == VAULT_UNAVAILABLE_REASON
             mock_forward.assert_not_called()
+        finally:
+            set_vault_client(None)
+
+
+# --- Reverse tokenization on the response path (EP-13/Prompt 33) -----------
+
+
+class _FakeStreamUpstream:
+    """Minimal stand-in for httpx streaming response (aiter_lines)."""
+
+    status_code = 200
+
+    def __init__(self, lines: list[str]):
+        self._lines = lines
+
+    def aiter_lines(self):
+        async def _gen():
+            for line in self._lines:
+                yield line
+
+        return _gen()
+
+
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}"
+
+
+def _delta_chunk(content: str, *, role: str | None = None, finish: str | None = None) -> str:
+    return _sse({
+        "id": "chatcmpl-t",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "gpt-3.5-turbo",
+        "choices": [{
+            "index": 0,
+            "delta": {**( {"role": role} if role else {}), "content": content},
+            "finish_reason": finish,
+        }],
+    })
+
+
+async def _consume(body_iterator) -> list[dict]:
+    events = []
+    async for chunk in body_iterator:
+        for piece in chunk.split("\n\n"):
+            piece = piece.strip()
+            if piece.startswith("data: "):
+                data = piece[6:]
+                if data == "[DONE]":
+                    events.append({"_done": True})
+                else:
+                    events.append(json.loads(data))
+    return events
+
+
+class TestProxyDetokenization:
+    """The LLM echoes prompt-side tokens back; the response restores them."""
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_echoed_token_restored_in_response(self, mock_forward):
+        mock_forward.return_value = _make_llm_response(
+            "Your username is <USERNAME_T_vt1>, all set."
+        )
+        from app.core.redaction.vault_client import set_vault_client
+
+        vault = _FakeVault()
+        vault.registry["vt1"] = "user_abcdef1234"
+        set_vault_client(vault)
+        try:
+            request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+            result = await proxy_chat(request)
+            assert result.choices[0].message.content == (
+                "Your username is user_abcdef1234, all set."
+            )
+            assert vault.decode_calls == ["vt1"]
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_vault_disabled_keeps_token_untouched(self, mock_forward):
+        mock_forward.return_value = _make_llm_response("id: <USERNAME_T_vt1>")
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(None)
+        request = _make_request("Hello")
+        result = await proxy_chat(request)
+        assert result.choices[0].message.content == "id: <USERNAME_T_vt1>"
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_decode_failure_keeps_token(self, mock_forward):
+        # Fail-open (ADR-0008 inbound): a token that cannot be decoded stays
+        # in the response instead of failing the request.
+        mock_forward.return_value = _make_llm_response("<USERNAME_T_vt1>")
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(_FakeVault(fail=True))
+        try:
+            request = _make_request("Hello")
+            result = await proxy_chat(request)
+            assert result.choices[0].message.content == "<USERNAME_T_vt1>"
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_blocked_generation_not_detokenized(self, mock_forward):
+        # Block path masks raw PII and never restores tokens (Prompt 33 only
+        # touches allowed responses).
+        mock_forward.return_value = _make_llm_response(
+            "SSN: 123-45-6789 and <USERNAME_T_vt1>"
+        )
+        from app.core.redaction.vault_client import set_vault_client
+
+        vault = _FakeVault()
+        vault.registry["vt1"] = "user_abcdef1234"
+        set_vault_client(vault)
+        try:
+            request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+            result = await proxy_chat(request)
+            content = result.choices[0].message.content
+            assert "123-45-6789" not in content
+            assert "<REDACTED>" in content
+            # Token left as-is on the block path.
+            assert "<USERNAME_T_vt1>" in content
+            assert vault.decode_calls == []
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    async def test_stream_delta_detokenized_live(self):
+        """Deltas are restored chunk-by-chunk; a token split across deltas
+        is held until it closes (ADR-0007)."""
+        from app.core.proxy import _forward_to_llm_stream
+        from app.core.redaction.vault_client import set_vault_client
+
+        vault = _FakeVault()
+        vault.registry["vault-token-42"] = "123-45-6789"
+        set_vault_client(vault)
+        try:
+            request = _make_request("Hello")
+            request.stream = True
+            upstream = _FakeStreamUpstream([
+                _delta_chunk("Your SSN <SSN_T_vau", role="assistant"),
+                _delta_chunk("lt-token-42> is safe"),
+                _delta_chunk("", finish="stop"),
+                "data: [DONE]",
+            ])
+            with patch("httpx.AsyncClient") as mock_client:
+                inst = AsyncMock()
+                inst.post.return_value = upstream
+                inst.__aenter__ = AsyncMock(return_value=inst)
+                inst.__aexit__ = AsyncMock(return_value=False)
+                mock_client.return_value = inst
+
+                resp = await _forward_to_llm_stream(
+                    request, "req-detok", prompt_hash="h", prompt_text="Hello"
+                )
+                events = await _consume(resp.body_iterator)
+
+            def _delta_of(e: dict):
+                if not e.get("choices"):
+                    return None
+                choice = e["choices"][0]
+                if choice.get("delta") is None:
+                    return None
+                return choice
+
+            # Live deltas (no finish_reason): concatenating them must give the
+            # restored text without ever exposing the raw token.
+            live = [
+                _delta_of(e)["delta"].get("content") or ""
+                for e in events
+                if _delta_of(e) and not _delta_of(e).get("finish_reason")
+            ]
+            assert "".join(live) == "Your SSN 123-45-6789 is safe"
+            assert not any("<SSN_T_" in c for c in live)
+            # The final accumulated chunk is restored as well.
+            final = [
+                e for e in events
+                if _delta_of(e) and _delta_of(e).get("finish_reason")
+            ]
+            assert final, events
+            assert final[-1]["choices"][0]["delta"]["content"] == (
+                "Your SSN 123-45-6789 is safe"
+            )
+            # Detokenize ran over accumulated too — registry round-trip.
+            assert "vault-token-42" in vault.decode_calls
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    async def test_stream_flush_on_done_without_finish_reason(self):
+        # Upstream closes on [DONE] without ever sending finish_reason: the
+        # held tail must still reach the client.
+        from app.core.proxy import _forward_to_llm_stream
+        from app.core.redaction.vault_client import set_vault_client
+
+        vault = _FakeVault()
+        vault.registry["vt1"] = "restored-value"
+        set_vault_client(vault)
+        try:
+            request = _make_request("Hello")
+            request.stream = True
+            upstream = _FakeStreamUpstream([
+                _delta_chunk("id: <SSN_T_vt1", role="assistant"),
+                "data: [DONE]",
+            ])
+            with patch("httpx.AsyncClient") as mock_client:
+                inst = AsyncMock()
+                inst.post.return_value = upstream
+                inst.__aenter__ = AsyncMock(return_value=inst)
+                inst.__aexit__ = AsyncMock(return_value=False)
+                mock_client.return_value = inst
+
+                resp = await _forward_to_llm_stream(
+                    request, "req-flush", prompt_hash="h", prompt_text="Hello"
+                )
+                events = await _consume(resp.body_iterator)
+
+            contents = [
+                e["choices"][0]["delta"].get("content")
+                for e in events
+                if e.get("choices") and e["choices"][0].get("delta") is not None
+            ]
+            # The token never closed, so the tail is emitted verbatim — a
+            # placeholder in the output is safe (it is not PII).
+            assert "".join(contents) == "id: <SSN_T_vt1"
         finally:
             set_vault_client(None)

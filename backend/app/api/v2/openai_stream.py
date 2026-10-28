@@ -18,6 +18,7 @@ from app.core.metrics import (
 )
 from app.core.pdp import scan_text
 from app.core.proxy import LLMProxyError, _build_forward_payload, _extract_prompt_text
+from app.core.redaction.detokenizer import StreamingDetokenizer
 from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON, redact_messages_for_llm
 from app.core.rate_limit import RateLimiter
 from app.core.detectors import get_shared_toxicity_detector
@@ -263,6 +264,48 @@ async def generate_stream(
     tenant_id: str,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE stream with per-chunk inspection."""
+    # Reverse tokenization (EP-13/Prompt 33): hold a token split across
+    # upstream chunks until it closes, decode complete ones (ADR-0007).
+    # The inspector above sees the raw tokenized text — an echoed token is
+    # not PII and must not block itself; restoration happens just before
+    # the chunk reaches the client.
+    content_detok = StreamingDetokenizer(tenant_id=tenant_id)
+    reasoning_detok = StreamingDetokenizer(tenant_id=tenant_id)
+    blocked = False
+    flushed = False
+    # Chunk metadata for synthetic tail chunks (updated from upstream chunks).
+    stream_id = f"chatcmpl-{request_id.replace('-', '')}"
+    stream_created = int(time.time())
+    stream_model = payload.model
+
+    def _tail_chunk(delta: dict) -> dict:
+        return {
+            "id": stream_id,
+            "object": "chat.completion.chunk",
+            "created": stream_created,
+            "model": stream_model,
+            "choices": [
+                {"index": 0, "delta": delta, "finish_reason": None}
+            ],
+        }
+
+    async def _flush_tails() -> AsyncGenerator[str, None]:
+        # Release anything still held — an unclosed token is emitted verbatim
+        # (a placeholder is not PII), nothing is stranded at stream end.
+        # After a block nothing more must reach the client.
+        nonlocal flushed
+        if flushed or blocked:
+            return
+        flushed = True
+        tail_content = await content_detok.flush()
+        tail_reasoning = await reasoning_detok.flush()
+        if tail_content:
+            yield format_sse(_tail_chunk({"role": None, "content": tail_content}))
+        if tail_reasoning:
+            yield format_sse(_tail_chunk(
+                {"role": None, "reasoning_content": tail_reasoning}
+            ))
+
     try:
         # Build forward payload
         forward_payload = _build_forward_payload(payload)
@@ -295,6 +338,8 @@ async def generate_stream(
                     if line.startswith("data: "):
                         data_str = line[6:]
                         if data_str == "[DONE]":
+                            async for tail_event in _flush_tails():
+                                yield tail_event
                             # Stream completed
                             yield format_sse({"type": "stream_complete"})
                             break
@@ -305,7 +350,12 @@ async def generate_stream(
                         except (json.JSONDecodeError, ValueError):
                             # Skip malformed chunks
                             continue
-                        
+
+                        # Keep metadata for synthetic tail chunks.
+                        stream_id = chunk_data.get("id") or stream_id
+                        stream_created = chunk_data.get("created") or stream_created
+                        stream_model = chunk_data.get("model") or stream_model
+
                         # Extract content from chunk
                         content = ""
                         reasoning_content = ""
@@ -323,6 +373,7 @@ async def generate_stream(
                             
                             if result.blocked:
                                 # Block detected - terminate stream
+                                blocked = True
                                 yield format_sse(scanner_blocked_event(
                                     reason=result.decision.reason,
                                     rule_ids=result.decision.rule_ids
@@ -330,7 +381,14 @@ async def generate_stream(
                                 yield format_sse({"type": "stream_complete"})
                                 break
                             
-                            # Forward the chunk to client
+                            # Restore echoed tokens just before the client
+                            # sees the chunk (Prompt 33). A token split
+                            # across chunks yields an empty delta here — the
+                            # text comes out on a later feed or the
+                            # end-of-stream flush; role/finish_reason of the
+                            # chunk are preserved either way.
+                            out_content = await content_detok.feed(content)
+                            chunk_data["choices"][0]["delta"]["content"] = out_content
                             yield format_sse(chunk_data)
                         
                         # Handle reasoning content (if any)
@@ -340,6 +398,7 @@ async def generate_stream(
                             
                             if result.blocked:
                                 # Block detected - terminate stream
+                                blocked = True
                                 yield format_sse(scanner_blocked_event(
                                     reason=result.decision.reason,
                                     rule_ids=result.decision.rule_ids
@@ -347,22 +406,29 @@ async def generate_stream(
                                 yield format_sse({"type": "stream_complete"})
                                 break
                             
-                            # Create reasoning chunk
-                            reasoning_chunk = {
-                                "id": chunk_data["id"],
-                                "object": "chat.completion.chunk",
-                                "created": chunk_data["created"],
-                                "model": chunk_data["model"],
-                                "choices": [
-                                    {
-                                        "index": 0,
-                                        "delta": {"role": "assistant", "reasoning_content": reasoning_content},
-                                        "finish_reason": None,
-                                    }
-                                ],
-                            }
-                            yield format_sse(reasoning_chunk)
+                            out_reasoning = await reasoning_detok.feed(reasoning_content)
+                            if out_reasoning:
+                                # Create reasoning chunk
+                                reasoning_chunk = {
+                                    "id": chunk_data["id"],
+                                    "object": "chat.completion.chunk",
+                                    "created": chunk_data["created"],
+                                    "model": chunk_data["model"],
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {"role": "assistant", "reasoning_content": out_reasoning},
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                }
+                                yield format_sse(reasoning_chunk)
                 
+                # Upstream closed without [DONE] (or a block broke the loop):
+                # release held tails unless the stream was blocked.
+                async for tail_event in _flush_tails():
+                    yield tail_event
+
                 # Stream completed - run final inspection
                 final_result = await inspector.finalize()
                 

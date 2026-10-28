@@ -217,6 +217,19 @@ scanner_redaction_failures_total = Counter(
     labelnames=["error"],  # circuit_open | vault_unreachable | ...
 )
 
+# PII reverse tokenization via Vault (EP-13/Prompt 33, ADR-0007)
+scanner_detokenization_tokens_total = Counter(
+    "scanner_detokenization_tokens_total",
+    "Vault tokens restored to original values, by PII type",
+    labelnames=["type"],  # SSN | EMAIL | AWS_KEY | ...
+)
+
+scanner_detokenization_failures_total = Counter(
+    "scanner_detokenization_failures_total",
+    "Vault detokenization failures (token left in place), by error reason",
+    labelnames=["error"],  # circuit_open | vault_decode_failed: ... | ...
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -249,3 +262,5 @@ def init_metrics() -> None:
     scanner_path_distribution.clear()
     scanner_redaction_tokens_total.clear()
     scanner_redaction_failures_total.clear()
+    scanner_detokenization_tokens_total.clear()
+    scanner_detokenization_failures_total.clear()
