@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     vault_engine: str = "auto"  # auto | tokenization | transit (OSS fallback, convergent)
     vault_breaker_fail_max: int = 5
     vault_breaker_reset_timeout: float = 30.0  # seconds
+    # Token TTL / auto-cleanup (EP-13/Prompt 34): the cleanup job rotates the
+    # encode key every ``vault_token_ttl_seconds`` and keeps the previous key
+    # version decryptable, so minted PII tokens expire after (ttl, 2*ttl].
+    vault_token_ttl_seconds: int = 300
+    vault_token_ttl_grace_versions: int = 1  # key versions kept decryptable after a rotation
 
     llm_provider_url: str = "http://localhost:8001"
     llm_api_path: str = "/v1/chat/completions"

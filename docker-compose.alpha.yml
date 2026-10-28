@@ -353,6 +353,32 @@ services:
       vault1:
         condition: service_started
 
+  # Token TTL / auto-cleanup job (EP-13/Prompt 34, ADR-0007): rotates the
+  # Vault encode key every ${VAULT_TOKEN_TTL_SECONDS:-300}s and retires older
+  # key versions via min_decryption_version, so minted PII tokens expire
+  # after (ttl, 2*ttl]. Same image as the scanner; the entrypoint is
+  # overridden because entrypoint.sh unconditionally starts uvicorn.
+  # Manual/one-shot run: docker compose -f docker-compose.yml -f
+  # docker-compose.alpha.yml run --rm vault-cleanup scripts/vault_cleanup.py --once
+  vault-cleanup:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    entrypoint: ["/app/.venv/bin/python"]
+    command: ["scripts/vault_cleanup.py", "--loop"]
+    environment:
+      SCANNER_VAULT_URL: http://vault1:8200
+      # Root token from backend/scripts/vault_init.sh (see scanner above).
+      SCANNER_VAULT_TOKEN: ${VAULT_TOKEN:-}
+      SCANNER_VAULT_MOUNT: ${VAULT_MOUNT:-tokenization}
+      SCANNER_VAULT_KEY_NAME: ${VAULT_KEY_NAME:-default}
+      SCANNER_VAULT_TOKEN_TTL_SECONDS: ${VAULT_TOKEN_TTL_SECONDS:-300}
+      SCANNER_VAULT_TOKEN_TTL_GRACE_VERSIONS: ${VAULT_TOKEN_TTL_GRACE_VERSIONS:-1}
+    depends_on:
+      vault1:
+        condition: service_started
+
   # Future ALPHA services will be added here:
   # jaeger, loki, alertmanager (EP-15/Prompts 41, 42, 44)
 

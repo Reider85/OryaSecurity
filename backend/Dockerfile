@@ -23,6 +23,7 @@ RUN uv pip install --no-cache-dir -e .
 # Copy source code
 COPY app/ app/
 COPY rules/ rules/
+COPY scripts/ scripts/
 COPY alembic.ini .
 COPY alembic/ alembic/
 COPY entrypoint.sh entrypoint.sh
@@ -45,6 +46,7 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/app/ app/
 COPY --from=builder /app/rules/ rules/
+COPY --from=builder /app/scripts/ scripts/
 COPY --from=builder /app/alembic.ini alembic.ini
 COPY --from=builder /app/alembic/ alembic/
 COPY --from=builder /app/entrypoint.sh entrypoint.sh

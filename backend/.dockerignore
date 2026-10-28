@@ -88,6 +88,8 @@ docs/
 tests/
 
 # Project specific
+# Unseal keys / root token written by scripts/vault_init.sh — never in an image
+scripts/.vault-secrets/
 test_pdp.bat
 test_pdp_simple.py
 verify_pdp.bat

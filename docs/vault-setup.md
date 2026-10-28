@@ -61,6 +61,9 @@ export VAULT_TOKEN="$(cat backend/scripts/.vault-secrets/root-token.txt)"
 
 # 4. поднять/перезапустить сканер
 docker compose -f docker-compose.yml -f docker-compose.alpha.yml up -d scanner
+
+# 5. джоба TTL/auto-cleanup (Prompt 34) — ротация ключа каждые 5 минут
+docker compose -f docker-compose.yml -f docker-compose.alpha.yml up -d vault-cleanup
 ```
 
 ## Что делает `vault_init.sh`
@@ -73,7 +76,7 @@ docker compose -f docker-compose.yml -f docker-compose.alpha.yml up -d scanner
 | 4 | Unseal остальных нод (`retry_join` в конфиге подтягивает их в кластер) | `PUT /v1/sys/unseal` |
 | 5 | Ожидание активного лидера | `GET /v1/sys/leader` |
 | 6 | Включение secrets engine на `$VAULT_MOUNT` | `POST /v1/sys/mounts/{mount}` |
-| 7 | Создание ключа шифрования (идемпотентно) | `POST /v1/{mount}/keys/{key}` |
+| 7 | Создание ключа шифрования (идемпотентно; + `min_decryption_version=1`, Prompt 34) | `POST /v1/{mount}/keys/{key}` |
 
 Опции: `--skip-engine` (только init/unseal), `--force-engine` (пересоздать mount),
 `--help`. Переменные читается из окружения, затем из `<repo>/.env`.
@@ -94,6 +97,80 @@ convergent encryption**:
 Клиент (`VaultClient`, `engine="auto"`) определяет тип автоматически по
 `GET /v1/sys/mounts/{mount}` — конфиг сканера не зависит от варианта.
 Mount path одинаков в обоих случаях (`$VAULT_MOUNT`, default `tokenization`).
+
+## TTL и auto-cleanup токенов (Prompt 34)
+
+Vault не умеет ставить TTL на отдельные PII-токены (ни tokenization, ни
+transit) — срок жизни задаётся **версией ключа**:
+
+1. `POST /v1/{mount}/keys/{key}/rotate` — новая версия ключа, все дальнейшие
+   `encode` идут в неё;
+2. `min_decryption_version` (baseline из промпта:
+   `vault write tokenization/keys/default allowed_operations=... min_decryption_version=1`)
+   запрещает decrypt старых версий → токены, отчеканенные под ними, перестают
+   декодироваться = фактически удалены.
+
+Скрипт `backend/scripts/vault_cleanup.py` каждые `VAULT_TOKEN_TTL_SECONDS`
+(по умолчанию 300 с = «5 минут» промпта) выполняет ротацию и поднимает
+`min_decryption_version = latest - VAULT_TOKEN_TTL_GRACE_VERSIONS` (по
+умолчанию 1):
+
+| | |
+|---|---|
+| In-flight запросы/стримы | переживают ротацию — предыдущая версия ключа ещё декодируется |
+| TTL токена | `(interval, 2*interval]` — **5–10 минут** при 300 с |
+| Протухший токен в ответе | inbound fail-open (Prompt 33): остаётся плейсхолдер `<SSN_T_...>` — не блок и не утечка PII |
+| `min_decryption_version` | монотонный, никогда не опускается — перезапуск джобы не «оживляет» мёртвые токены |
+
+### Запуск
+
+```bash
+# alpha-стек: сервис vault-cleanup крутит --loop автоматически
+docker compose -f docker-compose.yml -f docker-compose.alpha.yml up -d vault-cleanup
+
+# один проход (cron/systemd/ручной)
+export VAULT_TOKEN="$(cat backend/scripts/.vault-secrets/root-token.txt)"
+python backend/scripts/vault_cleanup.py --once            # exit 0 = ок/пропуск
+python backend/scripts/vault_cleanup.py --once --dry-run  # без записи в Vault
+
+# dev-нода (--profile dev): vault1 не поднимается, URL указываем вручную
+SCANNER_VAULT_URL=http://127.0.0.1:8200 SCANNER_VAULT_TOKEN=dev-token \
+  python backend/scripts/vault_cleanup.py --once
+```
+
+Exit-коды: `0` — успех или пропуск (неподдерживаемый engine/rotate endpoint),
+`1` — ошибка (`--once`), `2` — Vault не сконфигурирован (`SCANNER_VAULT_URL`
+пуст). В `--loop` транзиентные ошибки логируются и повторяются — джоба не падает.
+
+| Env var | Default | Описание |
+|---|---|---|
+| `SCANNER_VAULT_TOKEN_TTL_SECONDS` | `300` | интервал ротации = TTL-окно |
+| `SCANNER_VAULT_TOKEN_TTL_GRACE_VERSIONS` | `1` | сколько версий ключа остаётся декодируемыми после ротации |
+
+### Проверка
+
+```bash
+# версии ключа: latest_version / min_decryption_version
+curl -s -H "X-Vault-Token: $VAULT_TOKEN" $VAULT/v1/tokenization/keys/default \
+  | jq '.data.latest_version, .data.min_decryption_version'
+
+# ручная ротация
+curl -s -X POST -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT/v1/tokenization/keys/default/rotate
+
+# логи джобы (в alpha-стеке)
+docker compose -f docker-compose.yml -f docker-compose.alpha.yml logs -f vault-cleanup
+```
+
+Автотесты:
+
+```bash
+# unit (мок transport, без Vault)
+pytest tests/core/test_vault_ttl.py -m "not integration"
+
+# integration (нужен живой нода; ротирует ключ, min_version восстанавливается)
+SCANNER_TEST_VAULT_URL=http://127.0.0.1:8200 pytest tests/integration/test_vault_ttl.py -m vault
+```
 
 ## Креденшелы (unseal keys / root token)
 
@@ -120,6 +197,8 @@ Mount path одинаков в обоих случаях (`$VAULT_MOUNT`, defaul
 | `SCANNER_VAULT_TIMEOUT_MS` | `200` | HTTP timeout |
 | `SCANNER_VAULT_BREAKER_FAIL_MAX` | `5` | Circuit breaker: ошибок до открытия |
 | `SCANNER_VAULT_BREAKER_RESET_TIMEOUT` | `30` | Circuit breaker: секунд в open |
+| `SCANNER_VAULT_TOKEN_TTL_SECONDS` | `300` | TTL/интервал ротации ключа (Prompt 34) |
+| `SCANNER_VAULT_TOKEN_TTL_GRACE_VERSIONS` | `1` | Версий ключа, остающихся декодируемыми после ротации |
 
 `docker-compose.alpha.yml` передаёт `SCANNER_VAULT_URL=http://vault1:8200`
 и `SCANNER_VAULT_TOKEN=${VAULT_TOKEN:-}` автоматически.
@@ -190,6 +269,9 @@ SCANNER_TEST_VAULT_URL=http://127.0.0.1:8200 pytest tests/integration/test_vault
 | `vault_engine_unavailable` в сканере | Mount не создан — выполнить `vault_init.sh` без `--skip-engine` |
 | `permission denied` в сканере | Неверный/пустой `SCANNER_VAULT_TOKEN` — подставить из `.vault-secrets/vault.env` |
 | `circuit_open` в логах сканера | Vault недоступен дольше 5 ошибок подряд; восстановится сам после `reset_timeout` (30s) |
+| `vault_cleanup_failed` / `rotation_forbidden` | Токену нужен `update` на `{mount}/keys/{key}` и `update` на `{mount}/keys/{key}/rotate` |
+| `vault_cleanup_skipped: rotation_unsupported` | Endpoint rotate отсутствует (сборка Tokenization без rotate API) — TTL не работает, проверьте версию Vault |
+| `<SSN_T_...>` остался в ответе | Норма для протухшего токена (TTL 5–10 мин, Prompt 34) — inbound fail-open |
 
 ## Security notes
 
@@ -197,10 +279,12 @@ SCANNER_TEST_VAULT_URL=http://127.0.0.1:8200 pytest tests/integration/test_vault
   торчит (ноды 2/3 — только loopback). TLS termination — Envoy (EP-35, промпт 46).
 - Root token в env сканера — dev-практика. Для продакшена: отдельный
   AppRole/token с policy только на `{mount}/encode/*`, `{mount}/decode/*`,
-  `sys/mounts/{mount}` (read).
+  `sys/mounts/{mount}` (read); для джобы `vault_cleanup.py` дополнительно
+  `update` на `{mount}/keys/{key}` и `{mount}/keys/{key}/rotate`.
 - Unseal-ключи хранятся только в `.vault-secrets/` + у оператора; Shamir 5/3 —
   распределение ключей у SecOps.
-- TTL/auto-cleanup токенов — Prompt 34; per-tenant namespaces — BETA (ADR-0011).
+- TTL/auto-cleanup токенов — реализовано (см. «TTL и auto-cleanup токенов»);
+  per-tenant namespaces — BETA (ADR-0011).
 - Снапшоты Raft (backup) — Prompt 15/BETA, см. `docs/qdrant-backup.md` для S3-паттерна.
 
 ## Related

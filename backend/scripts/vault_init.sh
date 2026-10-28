@@ -332,12 +332,14 @@ fi
 
 if [[ "${engine}" == "tokenization" ]]; then
   # Best-effort tokenization key + template (Enterprise API, Prompt 31).
+  # min_decryption_version=1 is the Prompt 34 TTL baseline (applied on key
+  # creation only — never re-lowered on re-runs, expired tokens stay dead).
   code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 \
     -H "X-Vault-Token: ${ROOT_TOKEN}" -H 'Content-Type: application/json' \
     -X POST "${active_addr}/v1/${VAULT_MOUNT}/keys/${VAULT_KEY_NAME}" \
-    -d '{"allowed_operations": ["encrypt", "decrypt", "verify"]}' || echo 000)"
+    -d '{"allowed_operations": ["encrypt", "decrypt", "verify"], "min_decryption_version": 1}' || echo 000)"
   if [[ "${code}" == "200" || "${code}" == "204" ]]; then
-    log "created tokenization key '${VAULT_KEY_NAME}'"
+    log "created tokenization key '${VAULT_KEY_NAME}' (min_decryption_version=1)"
   elif [[ "${code}" == "400" ]]; then
     log "tokenization key '${VAULT_KEY_NAME}' already exists"
   else
@@ -358,6 +360,16 @@ else
     -d '{"type": "aes256-gcm96", "convergent_encryption": true, "exportable": false}' || echo 000)"
   if [[ "${code}" == "204" || "${code}" == "200" ]]; then
     log "created transit key '${VAULT_KEY_NAME}' (convergent, aes256-gcm96)"
+    # Prompt 34 TTL baseline: retire pre-v1 material so tokens live under
+    # versioned keys. Written only for a freshly created key — afterwards the
+    # cleanup job owns min_decryption_version (monotonic, never lowered).
+    cfg_code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 \
+      -H "X-Vault-Token: ${ROOT_TOKEN}" -H 'Content-Type: application/json' \
+      -X POST "${active_addr}/v1/${VAULT_MOUNT}/keys/${VAULT_KEY_NAME}/config" \
+      -d '{"min_decryption_version": 1}' || echo 000)"
+    [[ "${cfg_code}" == "204" || "${cfg_code}" == "200" ]] \
+      && log "applied min_decryption_version=1 (Prompt 34 TTL baseline)" \
+      || warn "cannot set min_decryption_version (HTTP ${cfg_code})"
   elif [[ "${code}" == "400" ]]; then
     log "transit key '${VAULT_KEY_NAME}' already exists"
   else

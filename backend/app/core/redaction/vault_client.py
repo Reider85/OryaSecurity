@@ -266,6 +266,15 @@ class VaultClient:
         logger.info("vault_engine_resolved", mount=self.mount, engine=resolved)
         return resolved
 
+    async def resolve_engine(self) -> str | None:
+        """Public engine auto-detection (``auto`` mode), cached after first probe.
+
+        Same as the internal helper used by encode/decode; exposed for
+        maintenance flows (Prompt 34 TTL cleanup) that need to know which
+        secrets engine they are rotating.
+        """
+        return await self._resolve_engine()
+
     # -- encode / decode ------------------------------------------------------
 
     async def encode(self, plaintext: str, *, context: str | None = None) -> VaultResult:
@@ -362,6 +371,22 @@ class VaultClient:
             return VaultResult(ok=True, value=value, engine=engine)
 
     # -- misc -----------------------------------------------------------------
+
+    async def api(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict | None = None,
+    ) -> tuple[int, dict]:
+        """Generic authenticated Vault API call (Prompt 34, key management).
+
+        Reuses the client's URL/token/namespace/timeout so admin-level
+        operations (key rotation, ``min_decryption_version`` config) do not
+        need their own transport. Deliberately does **not** touch the circuit
+        breaker: those calls are maintenance, not the PII hot path.
+        """
+        return await self._request(method, path, json_body=json_body)
 
     @property
     def breaker_state(self) -> str:

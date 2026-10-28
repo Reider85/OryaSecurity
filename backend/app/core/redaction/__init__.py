@@ -4,6 +4,7 @@
 ``redactor`` — Vault-based PII tokenization for the outbound path (Prompt 32).
 ``detokenizer`` — reverse tokenization for the inbound/LLM-response path
 (Prompt 33).
+``vault_ttl`` — key-rotation TTL / auto-cleanup for minted tokens (Prompt 34).
 """
 
 from app.core.redaction.detokenizer import (
@@ -28,8 +29,18 @@ from app.core.redaction.vault_client import (
     init_vault_client,
     set_vault_client,
 )
+from app.core.redaction.vault_ttl import (
+    CleanupReport,
+    KeyState,
+    ensure_key_config,
+    get_key_state,
+    probe_roundtrip,
+    run_cleanup,
+)
 
 __all__ = [
+    "CleanupReport",
+    "KeyState",
     "PIIDetokenizer",
     "PIIRedactor",
     "RedactedText",
@@ -38,7 +49,11 @@ __all__ = [
     "TokenInfo",
     "VAULT_UNAVAILABLE_REASON",
     "detokenize_text",
+    "ensure_key_config",
+    "get_key_state",
+    "probe_roundtrip",
     "redact_messages_for_llm",
+    "run_cleanup",
     "VaultClient",
     "VaultHealth",
     "VaultResult",
