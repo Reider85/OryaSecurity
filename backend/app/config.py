@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     opa_policy_package: str = "tenant_default"  # Rego package for allow/deny evaluation
     policy_version_cache_ttl_seconds: int = 30  # how long active version is cached in-process
 
+    # HashiCorp Vault PII redaction (EP-13/Prompt 31, ADR-0007)
+    vault_url: str = ""  # e.g. "http://localhost:8200"; empty = Vault integration off
+    vault_token: str | None = None  # root/app token (from backend/scripts/vault_init.sh)
+    vault_namespace: str | None = None  # Enterprise namespaces (ADR-0011, BETA)
+    vault_timeout_ms: int = 200
+    vault_secret_mount: str = "tokenization"  # mount path of the secrets engine
+    vault_key_name: str = "default"  # key within the engine (tenant key in BETA)
+    vault_engine: str = "auto"  # auto | tokenization | transit (OSS fallback, convergent)
+    vault_breaker_fail_max: int = 5
+    vault_breaker_reset_timeout: float = 30.0  # seconds
+
     llm_provider_url: str = "http://localhost:8001"
     llm_api_path: str = "/v1/chat/completions"
     llm_model: str | None = "glm-5.3-flash"

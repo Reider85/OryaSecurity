@@ -179,21 +179,181 @@ services:
       timeout: 5s
       retries: 3
 
-  # Override scanner service to use Qdrant cluster + OPA PDP
+  # HashiCorp Vault — HA cluster, 3 nodes with Raft consensus
+  # (EP-13/Prompt 31, ADR-0007; ALPHA exit checklist: "Vault HA mode (3 nodes, Raft)").
+  #
+  # Fresh cluster lifecycle (idempotent script):
+  #   bash backend/scripts/vault_init.sh
+  #   1. init node1 (Shamir 5/3), save keys to backend/scripts/.vault-secrets/
+  #   2. unseal all 3 nodes (raft retry_join wires the cluster automatically)
+  #   3. enable tokenization engine, or transit (OSS fallback, convergent)
+  #
+  # Until vault_init.sh runs, nodes are sealed — healthcheck is TCP-level only
+  # (HTTP /v1/sys/health returns 501/503 before init/unseal).
+  vault1:
+    image: hashicorp/vault:1.18.0
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_LOCAL_CONFIG: |
+        storage "raft" {
+          path    = "/vault/data"
+          node_id = "vault1"
+          retry_join {
+            leader_api_addr = "http://vault1:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault2:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault3:8200"
+          }
+        }
+        listener "tcp" {
+          address     = "0.0.0.0:8200"
+          tls_disable = true
+        }
+        api_addr     = "http://vault1:8200"
+        cluster_addr = "http://vault1:8201"
+        disable_mlock = true
+        ui = true
+    ports:
+      - "8200:8200"  # HTTP API (used by scanner + vault_init.sh)
+    volumes:
+      - vault1_data:/vault/data
+    healthcheck:
+      # TCP only: HTTP /v1/sys/health is non-200 until the node is
+      # initialized and unsealed (501 / 503 / 429-standby).
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/8200' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  vault2:
+    image: hashicorp/vault:1.18.0
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_LOCAL_CONFIG: |
+        storage "raft" {
+          path    = "/vault/data"
+          node_id = "vault2"
+          retry_join {
+            leader_api_addr = "http://vault1:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault2:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault3:8200"
+          }
+        }
+        listener "tcp" {
+          address     = "0.0.0.0:8200"
+          tls_disable = true
+        }
+        api_addr     = "http://vault2:8200"
+        cluster_addr = "http://vault2:8201"
+        disable_mlock = true
+        ui = true
+    ports:
+      # HTTP API on loopback only — needed for vault_init.sh (per-node unseal)
+      - "127.0.0.1:8210:8200"
+    volumes:
+      - vault2_data:/vault/data
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/8200' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  vault3:
+    image: hashicorp/vault:1.18.0
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_LOCAL_CONFIG: |
+        storage "raft" {
+          path    = "/vault/data"
+          node_id = "vault3"
+          retry_join {
+            leader_api_addr = "http://vault1:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault2:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault3:8200"
+          }
+        }
+        listener "tcp" {
+          address     = "0.0.0.0:8200"
+          tls_disable = true
+        }
+        api_addr     = "http://vault3:8200"
+        cluster_addr = "http://vault3:8201"
+        disable_mlock = true
+        ui = true
+    ports:
+      # HTTP API on loopback only — needed for vault_init.sh (per-node unseal)
+      - "127.0.0.1:8220:8200"
+    volumes:
+      - vault3_data:/vault/data
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/8200' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Vault single-node (dev mode) — run with: docker compose --profile dev up vault
+  # Auto-initialized + unsealed; root token from VAULT_DEV_ROOT_TOKEN.
+  # Data is ephemeral — for local development and tests only.
+  vault:
+    image: hashicorp/vault:1.18.0
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    command: server -dev
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-dev-token}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    profiles: ["dev"]
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/8200' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # Override scanner service to use Qdrant cluster + OPA PDP + Vault PII redaction
   scanner:
     environment:
       SCANNER_QDRANT_URL: http://qdrant1:6333
       SCANNER_OPA_URL: http://opa:8181
       SCANNER_BUNDLE_SERVICE_URL: http://bundle-service:8081
       SCANNER_PDP_OPA_ENABLED: "true"
+      SCANNER_VAULT_URL: http://vault1:8200
+      # Root token produced by backend/scripts/vault_init.sh (backend/scripts/.vault-secrets/).
+      # Empty => Vault client stays initialized-but-tokenless; encode/decode fail
+      # through the circuit breaker (redaction fails closed downstream).
+      SCANNER_VAULT_TOKEN: ${VAULT_TOKEN:-}
     depends_on:
       qdrant1:
         condition: service_started
       opa:
         condition: service_started
+      vault1:
+        condition: service_started
 
   # Future ALPHA services will be added here:
-  # vault (EP-13/Prompt 31)
   # jaeger, loki, alertmanager (EP-15/Prompts 41, 42, 44)
 
 volumes:
@@ -207,4 +367,6 @@ volumes:
   qdrant3_data:
   qdrant_dev_data:
   minio_data:
-  # vault_data:
+  vault1_data:
+  vault2_data:
+  vault3_data:

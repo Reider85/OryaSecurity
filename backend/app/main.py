@@ -28,6 +28,7 @@ from app.core.bootstrap import ensure_bootstrap_api_keys
 from app.core.metrics import scanner_uptime_seconds, python_info
 from app.core.detectors import get_shared_toxicity_detector
 from app.core.pdp.opa_client import init_opa_client, close_opa_client
+from app.core.redaction.vault_client import init_vault_client, close_vault_client
 import time
 import sys
 import platform
@@ -78,6 +79,9 @@ async def startup_event():
 
     # Initialize OPA PDP client (EP-12/Prompt 28) — no-op when disabled
     init_opa_client()
+
+    # Initialize Vault redaction client (EP-13/Prompt 31) — no-op when disabled
+    init_vault_client()
     
     # Initialize uptime and Python info metrics
     scanner_uptime_seconds.set(time.time())
@@ -92,6 +96,7 @@ async def startup_event():
 async def shutdown_event():
     """Close Qdrant, Redis, and database connections on shutdown."""
     await close_opa_client()
+    await close_vault_client()
     await close_qdrant()
     await close_redis()
     await close_db()

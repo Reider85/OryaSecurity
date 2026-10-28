@@ -71,6 +71,7 @@ markers = [
     "db: requires a reachable PostgreSQL",
     "redis: requires a reachable Redis (or fakeredis fallback)",
     "qdrant: requires a reachable Qdrant",
+    "vault: requires a reachable HashiCorp Vault",
 ]
 
 [tool.hatch.build.targets.wheel]
