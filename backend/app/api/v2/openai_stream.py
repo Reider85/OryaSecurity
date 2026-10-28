@@ -18,6 +18,7 @@ from app.core.metrics import (
 )
 from app.core.pdp import scan_text
 from app.core.proxy import LLMProxyError, _build_forward_payload, _extract_prompt_text
+from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON, redact_messages_for_llm
 from app.core.rate_limit import RateLimiter
 from app.core.detectors import get_shared_toxicity_detector
 from app.core.detectors.toxicity import ToxicityDetector
@@ -144,7 +145,49 @@ async def chat_completions_stream(
             status_code=403,
             headers=sse_response_headers(request_id),
         )
-    
+
+    # Tokenize PII/secrets before the prompt reaches the LLM (EP-13/Prompt 32).
+    # Fail-closed per ADR-0008: unable to mint a token => do not start the stream.
+    redaction = await redact_messages_for_llm(
+        payload.messages,
+        auth_info.tenant_id or settings.default_tenant_id,
+    )
+    if not redaction.ok:
+        await write_event(
+            request_id=request_id,
+            prompt_hash=prompt_hash,
+            verdict="block",
+            reason=VAULT_UNAVAILABLE_REASON,
+            rules_matched=verdict_matches,
+            policy_version=policy_version,
+            tenant_id=auth_info.tenant_id or settings.default_tenant_id,
+            latency_ms=latency_ms,
+            metadata={"direction": "prompt"},
+        )
+
+        set_scanner_context(
+            request,
+            verdict="block",
+            reason=VAULT_UNAVAILABLE_REASON,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
+
+        scanner_request_duration_seconds.observe(latency_ms / 1000)
+        scanner_requests_total.labels(
+            verdict="block",
+            tenant_id=auth_info.tenant_id or settings.default_tenant_id or "unknown",
+        ).inc()
+
+        return StreamingResponse(
+            content=generate_error_stream(
+                {"error": {"message": VAULT_UNAVAILABLE_REASON, "type": "scanner_error"}},
+                request_id
+            ),
+            status_code=403,
+            headers=sse_response_headers(request_id),
+        )
+
     # Prompt is allowed, start streaming
     await write_event(
         request_id=request_id,

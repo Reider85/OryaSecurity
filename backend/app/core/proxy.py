@@ -14,6 +14,7 @@ from app.core.cache import decision_cache
 from app.core.pdp import decide_with_opa, get_active_policy_version, scan_text
 from app.core.rules.base import RuleMatch
 from app.core.redactor import redact
+from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON, redact_messages_for_llm
 from app.models.openai import (
     ChatCompletionChoice,
     ChatCompletionMessage,
@@ -141,6 +142,27 @@ async def proxy_chat(request: ChatCompletionRequest, tenant_id: str | None = Non
         raise LLMProxyError(
             status_code=403,
             detail=verdict_reason,
+        )
+
+    # Tokenize PII/secrets before the prompt reaches the LLM (EP-13/Prompt 32).
+    # Fail-closed per ADR-0008: Vault configured but unable to mint a token
+    # means the request must not be forwarded.
+    redaction = await redact_messages_for_llm(request.messages, tenant_id)
+    if not redaction.ok:
+        await write_event(
+            request_id=request_id,
+            tenant_id=tenant_id,
+            prompt_hash=prompt_hash,
+            verdict="block",
+            reason=VAULT_UNAVAILABLE_REASON,
+            rules_matched=verdict_matches,
+            policy_version=policy_version,
+            prompt_text_redacted=redact(prompt_text, prompt_matches),
+            latency_ms=latency_ms,
+        )
+        raise LLMProxyError(
+            status_code=403,
+            detail=VAULT_UNAVAILABLE_REASON,
         )
 
     await write_event(
@@ -287,6 +309,26 @@ async def proxy_chat_stream(request: ChatCompletionRequest, tenant_id: str | Non
         raise LLMProxyError(
             status_code=403,
             detail=verdict_reason,
+        )
+
+    # Tokenize PII/secrets before the prompt reaches the LLM (EP-13/Prompt 32).
+    # Fail-closed per ADR-0008 (same as the non-streaming path).
+    redaction = await redact_messages_for_llm(request.messages, tenant_id)
+    if not redaction.ok:
+        await write_event(
+            request_id=request_id,
+            tenant_id=tenant_id,
+            prompt_hash=prompt_hash,
+            verdict="block",
+            reason=VAULT_UNAVAILABLE_REASON,
+            rules_matched=verdict_matches,
+            policy_version=policy_version,
+            prompt_text_redacted=redact(prompt_text, prompt_matches),
+            latency_ms=latency_ms,
+        )
+        raise LLMProxyError(
+            status_code=403,
+            detail=VAULT_UNAVAILABLE_REASON,
         )
 
     await write_event(

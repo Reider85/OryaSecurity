@@ -13,6 +13,7 @@ from app.core.proxy import (
     _extract_prompt_text,
     _mask_blocked_content,
     proxy_chat,
+    proxy_chat_stream,
 )
 from app.core.rules.base import RuleMatch
 from app.models.openai import (
@@ -485,3 +486,110 @@ class TestReasoningContent:
         )
         assert response.choices[0].message.content == "Hello"
         assert response.choices[0].message.reasoning_content == "Let me think..."
+
+
+# --- PII tokenization on the outbound path (EP-13/Prompt 32) ---------------
+#
+# `user_...` matches the pii_username rule (action=log_only, severity=low),
+# so the prompt passes the PDP and reaches the redaction step — unlike real
+# SSN/AWS-key values, which the rules block before redaction ever runs.
+
+_PROMPT_WITH_ALLOWLISTED_PII = "my login is user_abcdef1234"
+
+
+class _FakeVault:
+    """Duck-typed VaultClient.encode for the redactor."""
+
+    def __init__(self, fail: bool = False):
+        self.fail = fail
+        self.calls = 0
+
+    async def encode(self, plaintext, *, context=None):
+        from app.core.redaction.vault_client import VaultResult
+
+        self.calls += 1
+        if self.fail:
+            return VaultResult(ok=False, error="circuit_open")
+        return VaultResult(ok=True, value=f"vt{self.calls}", engine="tokenization")
+
+
+class TestProxyRedaction:
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_vault_disabled_passthrough(self, mock_forward):
+        mock_forward.return_value = _make_llm_response("ok")
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(None)
+        request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+        await proxy_chat(request)
+        assert request.messages[0].content == _PROMPT_WITH_ALLOWLISTED_PII
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_pii_tokenized_before_forward(self, mock_forward):
+        mock_forward.return_value = _make_llm_response("ok")
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(_FakeVault())
+        try:
+            request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+            await proxy_chat(request)
+            content = request.messages[0].content
+            assert "user_abcdef1234" not in content
+            assert "<USERNAME_T_vt1>" in content
+            # Forwarding happens from request.messages, so the LLM sees tokens
+            mock_forward.assert_called_once()
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm")
+    async def test_redaction_failure_is_fail_closed(self, mock_forward):
+        from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(_FakeVault(fail=True))
+        try:
+            request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+            with pytest.raises(LLMProxyError) as exc_info:
+                await proxy_chat(request)
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.detail == VAULT_UNAVAILABLE_REASON
+            mock_forward.assert_not_called()
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm_stream")
+    async def test_stream_path_tokenizes_too(self, mock_forward):
+        mock_forward.return_value = "stream-sentinel"
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(_FakeVault())
+        try:
+            request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+            result = await proxy_chat_stream(request)
+            assert result == "stream-sentinel"
+            content = request.messages[0].content
+            assert "user_abcdef1234" not in content
+            assert "<USERNAME_T_" in content
+        finally:
+            set_vault_client(None)
+
+    @pytest.mark.asyncio
+    @patch("app.core.proxy._forward_to_llm_stream")
+    async def test_stream_redaction_failure_fail_closed(self, mock_forward):
+        from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON
+        from app.core.redaction.vault_client import set_vault_client
+
+        set_vault_client(_FakeVault(fail=True))
+        try:
+            request = _make_request(_PROMPT_WITH_ALLOWLISTED_PII)
+            with pytest.raises(LLMProxyError) as exc_info:
+                await proxy_chat_stream(request)
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.detail == VAULT_UNAVAILABLE_REASON
+            mock_forward.assert_not_called()
+        finally:
+            set_vault_client(None)

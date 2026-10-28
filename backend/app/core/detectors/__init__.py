@@ -16,6 +16,7 @@ from .classifier_explainability import (
     set_shared_explainer,
     explain_classification,
 )
+from .pii import PIIDetector
 
 # Triton client (EP-08) - imported from ml package to avoid circular deps
 from ...ml.triton_client import TritonEmbeddingClient, get_shared_triton_embedding_client, set_shared_triton_embedding_client
@@ -42,6 +43,7 @@ __all__ = [
     "get_shared_explainer",
     "set_shared_explainer",
     "explain_classification",
+    "PIIDetector",
     # Triton client
     "TritonEmbeddingClient",
     "get_shared_triton_embedding_client", 

@@ -204,6 +204,19 @@ scanner_policy_version_info = Gauge(
     labelnames=["version"],
 )
 
+# PII tokenization via Vault (EP-13/Prompt 32, ADR-0007)
+scanner_redaction_tokens_total = Counter(
+    "scanner_redaction_tokens_total",
+    "PII/secrets tokens minted by the Vault redactor, by PII type",
+    labelnames=["type"],  # SSN | EMAIL | AWS_KEY | ...
+)
+
+scanner_redaction_failures_total = Counter(
+    "scanner_redaction_failures_total",
+    "Vault redaction failures (fail-closed path), by error reason",
+    labelnames=["error"],  # circuit_open | vault_unreachable | ...
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -234,3 +247,5 @@ def init_metrics() -> None:
     scanner_slow_path_total.clear()
     scanner_slow_path_degraded_total.clear()
     scanner_path_distribution.clear()
+    scanner_redaction_tokens_total.clear()
+    scanner_redaction_failures_total.clear()
