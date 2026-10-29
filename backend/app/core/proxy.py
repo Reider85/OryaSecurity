@@ -16,6 +16,7 @@ from app.core.rules.base import RuleMatch
 from app.core.redactor import redact
 from app.core.redaction.detokenizer import StreamingDetokenizer, detokenize_text
 from app.core.redaction.redactor import VAULT_UNAVAILABLE_REASON, redact_messages_for_llm
+from app.core.observability import inject_trace_headers
 from app.models.openai import (
     ChatCompletionChoice,
     ChatCompletionMessage,
@@ -388,14 +389,18 @@ async def _forward_to_llm(
     )
 
     try:
+        # Add traceparent header for W3C trace context propagation
+        headers = {"X-Request-Id": request_id}
+        if settings.llm_api_key:
+            headers["Authorization"] = f"Bearer {settings.llm_api_key}"
+        inject_trace_headers(headers)
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
                 json=payload,
                 timeout=settings.llm_timeout_seconds,
-                headers={"X-Request-Id": request_id}
-                if not settings.llm_api_key
-                else {"X-Request-Id": request_id, "Authorization": f"Bearer {settings.llm_api_key}"},
+                headers=headers,
             )
     except httpx.TimeoutException:
         logger.error("proxy_llm_timeout", request_id=request_id, url=url)
@@ -474,14 +479,18 @@ async def _forward_to_llm_stream(
     )
 
     try:
+        # Add traceparent header for W3C trace context propagation
+        headers = {"X-Request-Id": request_id}
+        if settings.llm_api_key:
+            headers["Authorization"] = f"Bearer {settings.llm_api_key}"
+        inject_trace_headers(headers)
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
                 json=payload,
                 timeout=settings.llm_timeout_seconds,
-                headers={"X-Request-Id": request_id}
-                if not settings.llm_api_key
-                else {"X-Request-Id": request_id, "Authorization": f"Bearer {settings.llm_api_key}"},
+                headers=headers,
             )
     except httpx.TimeoutException:
         logger.error("proxy_llm_timeout", request_id=request_id, url=url)

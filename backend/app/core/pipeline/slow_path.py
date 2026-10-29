@@ -26,6 +26,8 @@ from app.core.metrics import (
 )
 
 logger = structlog.get_logger()
+from opentelemetry.trace import get_tracer
+tracer = get_tracer(__name__)
 
 # Sentinel for circuit breaker stop
 _STOP = object()
@@ -329,11 +331,14 @@ class SlowPath:
             ``fail_closed=True`` means the tenant policy required a BLOCK
             because the ML classifier was unavailable.
         """
-        start_time = time.perf_counter()
-        degraded_components = []
-        breakdown = {}
-        fail_closed = False
-        fail_closed_reason: Optional[str] = None
+        with tracer.start_as_current_span("slow_path") as span:
+            span.set_attribute("tenant_id", tenant_id)
+            span.set_attribute("request_id", request_id)
+            start_time = time.perf_counter()
+            degraded_components = []
+            breakdown = {}
+            fail_closed = False
+            fail_closed_reason: Optional[str] = None
 
         # Step 1: Embedding
         embed_start = time.perf_counter()
@@ -350,39 +355,59 @@ class SlowPath:
         # Step 2: Vector search (if embedding available)
         similar_attacks: Optional[list[SearchResult]] = []
         if embedding is not None:
-            vector_start = time.perf_counter()
-            vector_cb = self._get_vector_db_cb()
-            if vector_cb is not None:
-                similar_attacks = await vector_cb.search(embedding, top_k=10)
-            else:
-                similar_attacks = None
-            vector_latency = time.perf_counter() - vector_start
-            breakdown["vector_ms"] = vector_latency * 1000
+            with tracer.start_as_current_span("vector_search") as vector_span:
+                vector_span.set_attribute("tenant_id", tenant_id)
+                vector_span.set_attribute("request_id", request_id)
+                vector_start = time.perf_counter()
+                vector_cb = self._get_vector_db_cb()
+                if vector_cb is not None:
+                    similar_attacks = await vector_cb.search(embedding, top_k=10)
+                else:
+                    similar_attacks = None
+                vector_latency = time.perf_counter() - vector_start
+                breakdown["vector_ms"] = vector_latency * 1000
 
-            if similar_attacks is None:
-                similar_attacks = []
-                degraded_components.append("vector_search")
-                scanner_slow_path_degraded_total.labels(component="vector_search").inc()
+                if similar_attacks is None:
+                    similar_attacks = []
+                    degraded_components.append("vector_search")
+                    scanner_slow_path_degraded_total.labels(component="vector_search").inc()
+                    vector_span.set_attribute("degraded", True)
+                    vector_span.set_attribute("hits", 0)
+                else:
+                    vector_span.set_attribute("degraded", False)
+                    vector_span.set_attribute("hits", len([h for h in similar_attacks if h.score > 0.9]))
+                    vector_span.set_attribute("top_k", 10)
 
         # Step 3: ML classifier (can run in parallel with vector search)
         classification = None
         if text:  # Always try classification, even if degraded
-            classifier_start = time.perf_counter()
-            try:
-                classification = await self._get_ml_cb().classify(
-                    text, tenant_id=tenant_id
-                )
-            except MLUnavailableFailClosed as exc:
-                # Tenant policy = "strict": classifier unavailable -> BLOCK (EP-14).
-                fail_closed = True
-                fail_closed_reason = exc.reason
-                classification = None
-            classifier_latency = time.perf_counter() - classifier_start
-            breakdown["classifier_ms"] = classifier_latency * 1000
+            with tracer.start_as_current_span("ml_classify") as ml_span:
+                ml_span.set_attribute("tenant_id", tenant_id)
+                ml_span.set_attribute("request_id", request_id)
+                classifier_start = time.perf_counter()
+                try:
+                    classification = await self._get_ml_cb().classify(
+                        text, tenant_id=tenant_id
+                    )
+                except MLUnavailableFailClosed as exc:
+                    # Tenant policy = "strict": classifier unavailable -> BLOCK (EP-14).
+                    fail_closed = True
+                    fail_closed_reason = exc.reason
+                    classification = None
+                classifier_latency = time.perf_counter() - classifier_start
+                breakdown["classifier_ms"] = classifier_latency * 1000
 
-            if classification is None:
-                degraded_components.append("ml_classifier")
-                scanner_slow_path_degraded_total.labels(component="ml_classifier").inc()
+                if classification is None:
+                    degraded_components.append("ml_classifier")
+                    scanner_slow_path_degraded_total.labels(component="ml_classifier").inc()
+                    ml_span.set_attribute("degraded", True)
+                    ml_span.set_attribute("available", False)
+                    ml_span.set_attribute("is_suspicious", False)
+                else:
+                    ml_span.set_attribute("degraded", False)
+                    ml_span.set_attribute("available", True)
+                    ml_span.set_attribute("is_suspicious", classification.is_suspicious)
+                    ml_span.set_attribute("confidence", classification.confidence)
 
         # Step 4: Aggregate results
         aggregate_start = time.perf_counter()
@@ -401,6 +426,13 @@ class SlowPath:
         total_latency = time.perf_counter() - start_time
         latency_ms = total_latency * 1000
         breakdown["total_ms"] = latency_ms
+
+        # Set span attributes
+        span.set_attribute("outcome", outcome)
+        span.set_attribute("degraded", len(degraded_components) > 0)
+        span.set_attribute("degraded_components", ",".join(degraded_components) if degraded_components else "")
+        span.set_attribute("threat_score", aggregated.get("threat_score", 0.0))
+        span.set_attribute("latency_ms", latency_ms)
 
         # Record metrics
         scanner_slow_path_duration_seconds.observe(total_latency)

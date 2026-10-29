@@ -38,6 +38,7 @@ from app.core.metrics import scanner_uptime_seconds, python_info
 from app.core.detectors import get_shared_toxicity_detector
 from app.core.pdp.opa_client import init_opa_client, close_opa_client
 from app.core.redaction.vault_client import init_vault_client, close_vault_client
+from app.core.observability import init_telemetry, shutdown_telemetry
 import time
 import sys
 import platform
@@ -75,6 +76,9 @@ app.add_middleware(ScannerHeadersMiddleware)
 @app.on_event("startup")
 async def startup_event():
     """Initialize database, Redis, Qdrant, ensure bootstrap API keys, and ML models on startup."""
+    # Initialize OpenTelemetry tracing first so other components can be instrumented
+    init_telemetry(app)
+    
     await init_db()
     await init_redis()
     await init_qdrant()  # Non-fatal initialization (graceful degradation if Qdrant unavailable)
@@ -114,6 +118,9 @@ async def shutdown_event():
     await close_qdrant()
     await close_redis()
     await close_db()
+    
+    # Shutdown OpenTelemetry tracing
+    shutdown_telemetry()
 
 
 app.include_router(health_router)

@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.audit import write_event
 from app.core.auth import verify_api_key, AuthInfo
 from app.core.headers import set_scanner_context
+from app.core.observability import inject_trace_headers
 from app.core.metrics import (
     scanner_requests_total,
     scanner_request_duration_seconds,
@@ -313,20 +314,24 @@ async def generate_stream(
         # Create HTTP client and stream from LLM provider
         import httpx
         
+        # Add traceparent header for W3C trace context propagation
+        headers = {
+            "X-Request-Id": request_id,
+            **(
+                {"Authorization": f"Bearer {settings.llm_api_key}"}
+                if settings.llm_api_key
+                else {}
+            ),
+        }
+        inject_trace_headers(headers)
+        
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
                 f"{settings.llm_provider_url.rstrip('/')}{settings.llm_api_path}",
                 json=forward_payload,
                 timeout=settings.llm_timeout_seconds,
-                headers={
-                    "X-Request-Id": request_id,
-                    **(
-                        {"Authorization": f"Bearer {settings.llm_api_key}"}
-                        if settings.llm_api_key
-                        else {}
-                    ),
-                },
+                headers=headers,
             ) as upstream:
                 # Process SSE chunks
                 async for line in upstream.aiter_lines():

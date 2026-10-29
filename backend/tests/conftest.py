@@ -8,6 +8,9 @@ from app.main import app
 from app.config import settings
 from app.db.session import get_pool, close_db, init_db, get_db_connection
 
+# Disable tracing by default in tests to avoid OTLP connection errors
+os.environ.setdefault("SCANNER_OTEL_TRACING_ENABLED", "0")
+
 # Set the working directory to the backend directory to ensure rules are found
 os.chdir(os.path.dirname(os.path.dirname(__file__)))
 

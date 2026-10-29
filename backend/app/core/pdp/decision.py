@@ -22,8 +22,10 @@ from app.core.metrics import scanner_pdp_decisions_total, scanner_policy_version
 from app.core.pdp import decide
 from app.core.pdp.opa_client import get_opa_client
 from app.core.rules.base import RuleMatch, Verdict
+from app.core.observability import get_tracer
 
 logger = structlog.get_logger(__name__)
+tracer = get_tracer(__name__)
 
 DecisionSource = Literal["opa", "local", "local_fallback"]
 
@@ -98,7 +100,10 @@ async def decide_with_opa(
     Never raises: OPA failures degrade to the local ``decide()`` (fail-open)
     or to BLOCK (fail-closed), per ``SCANNER_PDP_OPA_FAIL_OPEN``.
     """
-    global _active_version
+    with tracer.start_as_current_span("pdp_decision") as span:
+        span.set_attribute("tenant_id", tenant_id)
+        span.set_attribute("request_id", request_id)
+        global _active_version
 
     client = get_opa_client()
     if client is None:
@@ -107,6 +112,9 @@ async def decide_with_opa(
             policy_version=settings.policy_version,
             source="local",
         )
+        span.set_attribute("verdict", result.verdict.action)
+        span.set_attribute("source", result.source)
+        span.set_attribute("policy_version", result.policy_version)
         _record(result.policy_version, _active_version, result)
         _active_version = result.policy_version
         return result
@@ -161,6 +169,9 @@ async def decide_with_opa(
         source=source,
         opa_deny_reasons=decision.deny_reasons,
     )
+    span.set_attribute("verdict", result.verdict.action)
+    span.set_attribute("source", result.source)
+    span.set_attribute("policy_version", result.policy_version)
     _record(policy_version, _active_version, result)
     _active_version = policy_version
     return result

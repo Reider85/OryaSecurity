@@ -9,9 +9,10 @@ import structlog
 from app.core.cache import decision_cache
 from app.core.pdp import rule_set, scan_text, decide
 from app.core.rules.base import RuleMatch, Verdict
+from app.core.observability import get_tracer
 
 logger = structlog.get_logger()
-
+tracer = get_tracer(__name__)
 
 from app.core.pipeline.suspicion_tagger import SuspicionTagger, SuspicionResult
 
@@ -37,7 +38,10 @@ class FastPath:
         2. Rule engine (regex)
         3. Suspicion tagger (length, regex match count)
         """
-        start_time = time.time()
+        with tracer.start_as_current_span("fast_path") as span:
+            span.set_attribute("tenant_id", None)  # Not available in fast path
+            span.set_attribute("request_id", None)  # Not available in fast path
+            start_time = time.time()
 
         # Step 1: Decision cache lookup
         cache_start = time.time()
@@ -52,6 +56,10 @@ class FastPath:
                 rules_matched=[RuleMatch(**match) for match in cached_data["rules_matched"]],
             )
             total_latency = time.time() - start_time
+            span.set_attribute("cache_hit", True)
+            span.set_attribute("is_suspicious", False)
+            span.set_attribute("verdict", verdict.action)
+            span.set_attribute("latency_ms", total_latency * 1000)
             return FastPathResult(
                 verdict=verdict,
                 cache_hit=True,
@@ -75,6 +83,10 @@ class FastPath:
             # No regex match + short → ALLOW (no slow path)
             verdict = Verdict(action="allow", reason="fast_path_clean", rules_matched=[])
             total_latency = time.time() - start_time
+            span.set_attribute("cache_hit", False)
+            span.set_attribute("is_suspicious", False)
+            span.set_attribute("verdict", verdict.action)
+            span.set_attribute("latency_ms", total_latency * 1000)
             return FastPathResult(
                 verdict=verdict,
                 cache_hit=False,
@@ -91,6 +103,10 @@ class FastPath:
         # Suspicious → continue to slow path
         verdict = None
         total_latency = time.time() - start_time
+        span.set_attribute("cache_hit", False)
+        span.set_attribute("is_suspicious", True)
+        span.set_attribute("verdict", None)  # No verdict yet
+        span.set_attribute("latency_ms", total_latency * 1000)
         return FastPathResult(
             verdict=verdict,
             cache_hit=False,
