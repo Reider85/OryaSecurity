@@ -60,11 +60,19 @@ class PipelineOrchestrator:
             self.slow_path = get_slow_path()
         return self.slow_path
     
-    async def process(self, text: str) -> OrchestratorResult:
+    async def process(
+        self,
+        text: str,
+        *,
+        tenant_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> OrchestratorResult:
         """Process text through two-tier pipeline.
         
         Args:
             text: Input text to analyze
+            tenant_id: Tenant for per-tenant policies (ML classifier CB fallback)
+            request_id: Request id for fail-closed audit events
             
         Returns:
             OrchestratorResult with path type and component results
@@ -82,8 +90,20 @@ class PipelineOrchestrator:
         else:
             # Suspicious → proceed to slow path
             slow_path_instance = self._get_slow_path()
-            slow_result = await slow_path_instance.process(text)
+            slow_result = await slow_path_instance.process(
+                text, tenant_id=tenant_id, request_id=request_id
+            )
             path = "slow"
+            
+            if slow_result.fail_closed:
+                # Tenant policy = "strict" and the ML classifier was
+                # unavailable: the consumer must BLOCK (EP-14 / Prompt 37).
+                logger.warning(
+                    "orchestrator_fail_closed",
+                    reason=slow_result.fail_closed_reason,
+                    tenant_id=tenant_id,
+                    request_id=request_id,
+                )
             
             # Combine results
             result = OrchestratorResult(

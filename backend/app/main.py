@@ -21,6 +21,11 @@ from app.api.v1 import (
     charts_router as v1_charts_router,
 )
 from app.core.headers import ScannerHeadersMiddleware
+from app.core.circuit_breakers.vector_db import VectorDBCircuitBreaker, set_vector_db_breaker
+from app.core.circuit_breakers.ml_classifier import (
+    MLClassifierCircuitBreaker,
+    set_ml_classifier_breaker,
+)
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
 from app.db.qdrant_client import init_qdrant, close_qdrant
@@ -211,6 +216,7 @@ def init_post_factum_stack():
         ef_search=settings.qdrant_ef_search,
     )
     set_shared_vector_searcher(vector_searcher)
+    set_vector_db_breaker(VectorDBCircuitBreaker(vector_searcher))
 
     classifier = PromptClassifier(
         model_path=settings.classifier_model_path,
@@ -219,6 +225,7 @@ def init_post_factum_stack():
         flag_threshold=settings.classifier_flag_threshold,
     )
     set_shared_classifier(classifier if classifier.available else None)
+    set_ml_classifier_breaker(MLClassifierCircuitBreaker(classifier))
 
     set_post_factum_analyzer(
         PostFactumAnalyzer(

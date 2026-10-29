@@ -128,7 +128,9 @@ class PIIRedactor:
         vault_client: client used for encode/decode; ``None`` disables
             tokenization (passthrough). Defaults to the process singleton
             wired in ``app.main`` startup.
-        detector: PII detector; defaults to a regex-only ``PIIDetector``.
+        detector: PII detector; defaults to :func:`make_detector` (Prompt 35):
+            YAML regex rules plus Presidio NER when ``presidio_enabled``,
+            regex-only otherwise.
     """
 
     def __init__(
@@ -137,7 +139,13 @@ class PIIRedactor:
         detector: Optional[PIIDetector] = None,
     ):
         self.vault_client = vault_client
-        self.detector = detector or PIIDetector()
+        if detector is None:
+            # Local import: detectors.pii_ner reaches back into this package
+            # at module level (circular if imported at load time).
+            from app.core.detectors.pii_ner import make_detector
+
+            detector = make_detector()
+        self.detector = detector
 
     async def redact(self, text: str, tenant_id: str | None = None) -> RedactedText:
         """Tokenize *text*: ``"my ssn 123-45-6789"`` -> ``"my ssn <SSN_T_...>"``.

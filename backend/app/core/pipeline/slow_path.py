@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional, AsyncContextManager
 
@@ -9,6 +11,12 @@ import numpy as np
 import structlog
 
 from app.core.cache_embedding import embedding_cache
+from app.core.circuit_breakers.ml_classifier import (
+    ML_UNAVAILABLE_REASON,
+    MLClassifierCircuitBreaker,
+    MLUnavailableFailClosed,
+)
+from app.core.circuit_breakers.vector_db import VectorDBCircuitBreaker
 from app.core.detectors.vector_search import SearchResult
 from app.core.detectors.ml_classifier import ClassificationResult, PromptClassifier
 from app.core.metrics import (
@@ -32,6 +40,8 @@ class SlowPathResult:
     classification: Optional[ClassificationResult] = None
     aggregated: dict[str, Any] = field(default_factory=dict)
     degraded_components: list[str] = field(default_factory=list)
+    fail_closed: bool = False
+    fail_closed_reason: Optional[str] = None
     latency_ms: float = 0.0
     breakdown: dict[str, float] = field(default_factory=dict)
 
@@ -43,6 +53,8 @@ class SlowPathResult:
             "classification": self.classification.to_dict() if self.classification else None,
             "aggregated": self.aggregated,
             "degraded_components": self.degraded_components,
+            "fail_closed": self.fail_closed,
+            "fail_closed_reason": self.fail_closed_reason,
             "latency_ms": self.latency_ms,
             "breakdown": self.breakdown,
         }
@@ -93,7 +105,7 @@ class CircuitBreaker:
         """Record success and reset failure counters."""
         self._failures = 0
         self._half_open_fails = 0
-        if self._state == "open":
+        if self._state in ("open", "half_open"):
             self._state = "closed"
             logger.info("circuit_breaker_reset", component=self.name)
 
@@ -152,6 +164,8 @@ class SlowPath:
         embedding_cache: Optional cache instance (defaults to global)
         vector_searcher: Optional VectorSearcher (defaults to global)
         classifier: Optional PromptClassifier (defaults to global)
+        vector_db_breaker: Optional VectorDBCircuitBreaker wrapping the searcher
+        ml_breaker: Optional MLClassifierCircuitBreaker wrapping the classifier
     """
 
     def __init__(
@@ -160,6 +174,8 @@ class SlowPath:
         embedding_cache: Optional[Any] = None,
         vector_searcher: Optional[Any] = None,
         classifier: Optional[PromptClassifier] = None,
+        vector_db_breaker: Optional[VectorDBCircuitBreaker] = None,
+        ml_breaker: Optional[MLClassifierCircuitBreaker] = None,
     ):
         self.embedding_batcher = embedding_batcher
         self.embedding_cache = embedding_cache or embedding_cache
@@ -168,8 +184,13 @@ class SlowPath:
 
         # Circuit breakers for each component
         self.embedding_cb = CircuitBreaker("embedding", fail_max=5, reset_timeout=30.0)
-        self.vector_search_cb = CircuitBreaker("vector_search", fail_max=5, reset_timeout=30.0)
-        self.classifier_cb = CircuitBreaker("ml_classifier", fail_max=5, reset_timeout=30.0)
+        self.ml_cb = ml_breaker
+        if vector_db_breaker is not None:
+            self.vector_db_cb = vector_db_breaker
+        elif vector_searcher is not None:
+            self.vector_db_cb = VectorDBCircuitBreaker(vector_searcher)
+        else:
+            self.vector_db_cb = None  # resolved from the global singleton
 
     def _get_embedding_batcher(self) -> Any:
         """Get shared embedding batcher or None."""
@@ -185,12 +206,29 @@ class SlowPath:
         from app.core.detectors.vector_search import get_shared_vector_searcher
         return get_shared_vector_searcher()
 
+    def _get_vector_db_cb(self) -> Optional[VectorDBCircuitBreaker]:
+        """Get the vector DB circuit breaker (instance, then global singleton)."""
+        if self.vector_db_cb is not None:
+            return self.vector_db_cb
+        from app.core.circuit_breakers.vector_db import get_vector_db_breaker
+        return get_vector_db_breaker()
+
     def _get_classifier(self) -> Any:
         """Get shared classifier or None."""
         if self.classifier is not None:
             return self.classifier
         from app.core.detectors.ml_classifier import get_shared_classifier
         return get_shared_classifier()
+
+    def _get_ml_cb(self) -> MLClassifierCircuitBreaker:
+        """Get the ML classifier circuit breaker (instance, then global singleton)."""
+        if self.ml_cb is not None:
+            return self.ml_cb
+        from app.core.circuit_breakers.ml_classifier import get_ml_classifier_breaker
+        self.ml_cb = get_ml_classifier_breaker()
+        if self.ml_cb is None:
+            self.ml_cb = MLClassifierCircuitBreaker(self._get_classifier())
+        return self.ml_cb
 
     def _aggregate_results(
         self,
@@ -213,6 +251,8 @@ class SlowPath:
             "threat_score": 0.0,
             "recommended_evidence": [],
         }
+
+        hits_above_threshold: list[SearchResult] = []
 
         # Vector search aggregation
         if similar_attacks:
@@ -269,18 +309,31 @@ class SlowPath:
 
         return aggregated
 
-    async def process(self, text: str) -> SlowPathResult:
+    async def process(
+        self,
+        text: str,
+        *,
+        tenant_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+    ) -> SlowPathResult:
         """Process text through slow path pipeline.
 
         Args:
             text: Input text to analyze
+            tenant_id: Tenant for the ML classifier CB fallback policy
+                (``default`` -> degrade, ``strict`` -> fail-closed, EP-14/Prompt 37)
+            request_id: Request id for the fail-closed audit event
 
         Returns:
-            SlowPathResult with analysis results and latency breakdown
+            SlowPathResult with analysis results and latency breakdown.
+            ``fail_closed=True`` means the tenant policy required a BLOCK
+            because the ML classifier was unavailable.
         """
         start_time = time.perf_counter()
         degraded_components = []
         breakdown = {}
+        fail_closed = False
+        fail_closed_reason: Optional[str] = None
 
         # Step 1: Embedding
         embed_start = time.perf_counter()
@@ -295,34 +348,41 @@ class SlowPath:
             degraded_components.append("embedding")
 
         # Step 2: Vector search (if embedding available)
-        similar_attacks = []
+        similar_attacks: Optional[list[SearchResult]] = []
         if embedding is not None:
             vector_start = time.perf_counter()
-            similar_attacks = await self.vector_search_cb.call(
-                self._get_vector_searcher().search,
-                embedding,
-                top_k=10  # Use qdrant_top_k from settings
-            )
+            vector_cb = self._get_vector_db_cb()
+            if vector_cb is not None:
+                similar_attacks = await vector_cb.search(embedding, top_k=10)
+            else:
+                similar_attacks = None
             vector_latency = time.perf_counter() - vector_start
             breakdown["vector_ms"] = vector_latency * 1000
 
             if similar_attacks is None:
                 similar_attacks = []
                 degraded_components.append("vector_search")
+                scanner_slow_path_degraded_total.labels(component="vector_search").inc()
 
         # Step 3: ML classifier (can run in parallel with vector search)
         classification = None
         if text:  # Always try classification, even if degraded
             classifier_start = time.perf_counter()
-            classification = await self.classifier_cb.call(
-                self._get_classifier().classify,
-                text
-            )
+            try:
+                classification = await self._get_ml_cb().classify(
+                    text, tenant_id=tenant_id
+                )
+            except MLUnavailableFailClosed as exc:
+                # Tenant policy = "strict": classifier unavailable -> BLOCK (EP-14).
+                fail_closed = True
+                fail_closed_reason = exc.reason
+                classification = None
             classifier_latency = time.perf_counter() - classifier_start
             breakdown["classifier_ms"] = classifier_latency * 1000
 
             if classification is None:
                 degraded_components.append("ml_classifier")
+                scanner_slow_path_degraded_total.labels(component="ml_classifier").inc()
 
         # Step 4: Aggregate results
         aggregate_start = time.perf_counter()
@@ -331,9 +391,12 @@ class SlowPath:
         breakdown["aggregate_ms"] = aggregate_latency * 1000
 
         # Determine outcome for metrics
-        outcome = "degraded" if degraded_components else (
-            "threat" if aggregated["threat_score"] > 0.0 else "clean"
-        )
+        if fail_closed:
+            outcome = "blocked"
+        elif degraded_components:
+            outcome = "degraded"
+        else:
+            outcome = "threat" if aggregated["threat_score"] > 0.0 else "clean"
 
         total_latency = time.perf_counter() - start_time
         latency_ms = total_latency * 1000
@@ -343,10 +406,25 @@ class SlowPath:
         scanner_slow_path_duration_seconds.observe(total_latency)
         scanner_slow_path_total.labels(outcome=outcome).inc()
 
+        if fail_closed:
+            logger.warning(
+                "slow_path_fail_closed",
+                reason=fail_closed_reason,
+                tenant_id=tenant_id,
+                request_id=request_id,
+            )
+            await self._audit_fail_closed(
+                text,
+                tenant_id=tenant_id,
+                request_id=request_id,
+                latency_ms=latency_ms,
+            )
+
         logger.info(
             "slow_path_complete",
             outcome=outcome,
             degraded_components=degraded_components,
+            fail_closed=fail_closed,
             threat_score=aggregated["threat_score"],
             latency_ms=round(latency_ms, 2),
         )
@@ -357,9 +435,43 @@ class SlowPath:
             classification=classification,
             aggregated=aggregated,
             degraded_components=degraded_components,
+            fail_closed=fail_closed,
+            fail_closed_reason=fail_closed_reason,
             latency_ms=latency_ms,
             breakdown=breakdown,
         )
+
+    async def _audit_fail_closed(
+        self,
+        text: str,
+        *,
+        tenant_id: Optional[str],
+        request_id: Optional[str],
+        latency_ms: float,
+    ) -> None:
+        """Audit the fail-closed BLOCK with reason ``ml_unavailable``.
+
+        Audit storage fails open (``write_event`` never raises), so a broken
+        audit backend cannot take the pipeline down.
+        """
+        from app.core.audit import write_event
+
+        try:
+            await write_event(
+                request_id=request_id or str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                prompt_hash=hashlib.sha256((text or "").encode()).hexdigest(),
+                verdict="block",
+                reason=ML_UNAVAILABLE_REASON,
+                rules_matched=[],
+                latency_ms=round(latency_ms, 2),
+                metadata={
+                    "component": "ml_classifier",
+                    "fallback_mode": "fail_closed",
+                },
+            )
+        except Exception:
+            logger.warning("slow_path_fail_closed_audit_error", exc_info=True)
 
     async def _get_embedding(self, text: str) -> Optional[np.ndarray]:
         """Get embedding with cache → batcher → client fallback."""

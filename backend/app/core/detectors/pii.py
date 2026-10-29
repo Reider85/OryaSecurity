@@ -1,8 +1,9 @@
 """PII/secrets detection for the Vault redaction path (EP-13/Prompt 32, ADR-0007).
 
 Thin wrapper around the YAML ``RuleSet`` (the same engine the scan pipeline
-uses) with an optional NER hook for non-regex PII. Prompt 35 wires Microsoft
-Presidio into that hook; until then detection is regex-only.
+uses) with an optional NER hook for non-regex PII. Prompt 35 plugs Microsoft
+Presidio into that hook (see :mod:`app.core.detectors.pii_ner`); without the
+``ner`` extra detection is regex-only.
 
 The detector returns plain ``RuleMatch`` objects so the redactor (and later
 the audit layer) can reuse the existing position/severity/action semantics
@@ -29,8 +30,11 @@ class PIIDetector:
             singleton from ``app.core.pdp`` (lazily, to avoid a circular
             import at module load time).
         ner: Optional callable for model-based detection (Presidio, Prompt 35).
-            Its matches are merged with the regex matches; NER hits that
-            overlap a regex hit are dropped (regex is deterministic and wins).
+            Its matches are merged with the regex matches; regex is
+            deterministic and wins on overlap, except that a *blocking* NER
+            hit supersedes the digit-run heuristic rules it overlaps
+            (``pii_phone``, ``pii_passport_ru`` — see :data:`HEURISTIC_RULE_IDS`)
+            so a checksum-validated ИНН is never downgraded to ``pii_phone``.
     """
 
     def __init__(
@@ -70,15 +74,40 @@ def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
     return a[0] < b[1] and b[0] < a[1]
 
 
+# Rules that match any digit run (and therefore produce low-information hits):
+# they are heuristics, not specific evidence. A blocking NER hit with a
+# validated value (e.g. ИНН check-sum) may supersede them; specific regex
+# evidence (SSN, email, secrets) never yields to NER.
+HEURISTIC_RULE_IDS = frozenset({"pii_phone", "pii_passport_ru"})
+
+
 def _merge_matches(regex: list[RuleMatch], ner: list[RuleMatch]) -> list[RuleMatch]:
-    """Merge NER detections into regex matches, dropping overlapping NER hits."""
+    """Merge NER detections into regex matches.
+
+    Rules, in order:
+
+    * regex hits are always kept unless explicitly superseded (below);
+    * a blocking NER hit whose entire overlap consists of heuristic digit-run
+      regex hits (``HEURISTIC_RULE_IDS``) replaces those hits;
+    * otherwise an overlapping NER hit is dropped — regex is deterministic and
+      wins (two signals on the same span are reported once);
+    * NER hits overlapping an already accepted NER hit are dropped (first wins,
+      callers should order NER input by entity priority);
+    * result is sorted by start position.
+    """
     merged = list(regex)
     for match in ner:
-        if any(_overlaps(match.position, m.position) for m in regex):
-            continue
-        # Skip NER hits that overlap another accepted NER hit
+        overlapping = [m for m in regex if _overlaps(match.position, m.position)]
+        if overlapping:
+            heuristic_only = all(m.rule_id in HEURISTIC_RULE_IDS for m in overlapping)
+            if match.action != "block" or not heuristic_only:
+                continue
+            # Blocking NER (validated value) supersedes digit-run heuristics.
+            superseded = {id(m) for m in overlapping}
+            merged = [m for m in merged if id(m) not in superseded]
         if any(_overlaps(match.position, m.position) for m in merged):
             continue
         merged.append(match)
     merged.sort(key=lambda m: m.position[0])
     return merged
+

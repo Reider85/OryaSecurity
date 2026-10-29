@@ -204,6 +204,25 @@ scanner_policy_version_info = Gauge(
     labelnames=["version"],
 )
 
+# Circuit breaker state (EP-14/Prompt 36, ADR-0008)
+scanner_circuit_breaker_state = Gauge(
+    "scanner_circuit_breaker_state",
+    "Circuit breaker state (0=closed, 1=open, 2=half_open)",
+    labelnames=["component"],  # vector_db | ml_classifier | vault
+)
+
+scanner_circuit_breaker_failures_total = Counter(
+    "scanner_circuit_breaker_failures_total",
+    "Upstream failures recorded by a circuit breaker",
+    labelnames=["component"],
+)
+
+scanner_circuit_breaker_fallback_invocations_total = Counter(
+    "scanner_circuit_breaker_fallback_invocations_total",
+    "Circuit breaker fallback invocations by mode",
+    labelnames=["component", "mode"],  # degrade | fail_open | fail_closed
+)
+
 # PII tokenization via Vault (EP-13/Prompt 32, ADR-0007)
 scanner_redaction_tokens_total = Counter(
     "scanner_redaction_tokens_total",
@@ -264,3 +283,5 @@ def init_metrics() -> None:
     scanner_redaction_failures_total.clear()
     scanner_detokenization_tokens_total.clear()
     scanner_detokenization_failures_total.clear()
+    scanner_circuit_breaker_failures_total.clear()
+    scanner_circuit_breaker_fallback_invocations_total.clear()

@@ -55,13 +55,18 @@ class VectorSearcher:
     def available(self) -> bool:
         return True  # availability is detected per-call via degrade path
 
-    async def search(
+    async def search_or_raise(
         self,
         embedding: np.ndarray,
         top_k: Optional[int] = None,
     ) -> list[SearchResult]:
-        """Search for similar attack vectors. Returns [] on any failure."""
-        from app.core.metrics import scanner_post_factum_degraded_total, scanner_vector_search_duration_seconds
+        """Search for similar attack vectors, propagating upstream errors.
+
+        This is the raw path used by the vector DB circuit breaker, which
+        needs failure signals to trip; use :meth:`search` for the
+        degrade-to-empty variant.
+        """
+        from app.core.metrics import scanner_vector_search_duration_seconds
 
         limit = top_k or self.top_k
         start_time = time.monotonic()
@@ -84,8 +89,21 @@ class VectorSearcher:
                 )
             scanner_vector_search_duration_seconds.observe(time.monotonic() - start_time)
             return results
-        except Exception as exc:  # noqa: BLE001 — degrade, never break the caller
+        except Exception:
             scanner_vector_search_duration_seconds.observe(time.monotonic() - start_time)
+            raise
+
+    async def search(
+        self,
+        embedding: np.ndarray,
+        top_k: Optional[int] = None,
+    ) -> list[SearchResult]:
+        """Search for similar attack vectors. Returns [] on any failure."""
+        from app.core.metrics import scanner_post_factum_degraded_total
+
+        try:
+            return await self.search_or_raise(embedding, top_k)
+        except Exception as exc:  # noqa: BLE001 — degrade, never break the caller
             scanner_post_factum_degraded_total.labels(component="vector_search").inc()
             logger.warning(
                 "vector_search_degraded",

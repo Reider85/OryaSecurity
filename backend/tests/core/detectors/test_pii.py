@@ -104,3 +104,69 @@ class TestMergeMatches:
         ner = [_match("pii_b", 0, 5), _match("pii_c", 3, 8)]
         merged = _merge_matches(regex, ner)
         assert [m.rule_id for m in merged] == ["pii_b"]
+
+
+class TestMergeStrongNerSupersedesHeuristicRegex:
+    """Blocking NER hits supersede digit-run heuristic regex hits (Prompt 35):
+    a valid ИНН must not be downgraded to ``pii_phone``/``pii_passport_ru``."""
+
+    @staticmethod
+    def _regex(rule_id: str, start: int, end: int, action: str, severity: str) -> RuleMatch:
+        return RuleMatch(
+            rule_id=rule_id,
+            rule_name=rule_id,
+            value_hash="h",
+            position=(start, end),
+            severity=severity,
+            action=action,
+        )
+
+    def test_blocking_ner_replaces_phone_heuristic(self):
+        weak = self._regex("pii_phone", 5, 15, "log_only", "low")
+        ner = [_match("pii_inn_ru", 5, 15)]
+        merged = _merge_matches([weak], ner)
+        assert [m.rule_id for m in merged] == ["pii_inn_ru"]
+
+    def test_blocking_ner_supersedes_passport_heuristic(self):
+        # No-space 10-digit number: the passport rule and the generic phone
+        # rule both match the run; a checksum-validated ИНН wins over both.
+        passport = self._regex("pii_passport_ru", 0, 10, "block", "high")
+        phone = self._regex("pii_phone", 0, 10, "log_only", "low")
+        ner = [_match("pii_inn_ru", 0, 10)]
+        merged = _merge_matches([passport, phone], ner)
+        assert [m.rule_id for m in merged] == ["pii_inn_ru"]
+
+    def test_blocking_ner_drops_only_overlapping_heuristics(self):
+        weak = self._regex("pii_phone", 5, 15, "log_only", "low")
+        other = self._regex("pii_email", 40, 55, "block", "medium")
+        ner = [_match("pii_inn_ru", 5, 15)]
+        merged = _merge_matches([weak, other], ner)
+        assert [m.rule_id for m in merged] == ["pii_inn_ru", "pii_email"]
+
+    def test_blocking_ner_loses_to_specific_regex(self):
+        strong = self._regex("pii_ssn_us", 5, 16, "block", "high")
+        ner = [_match("pii_custom_name", 5, 14)]
+        merged = _merge_matches([strong], ner)
+        assert [m.rule_id for m in merged] == ["pii_ssn_us"]
+
+    def test_blocking_ner_loses_when_any_overlap_is_specific(self):
+        heuristic = self._regex("pii_phone", 0, 10, "log_only", "low")
+        specific = self._regex("pii_email", 8, 20, "block", "medium")
+        ner = [_match("pii_inn_ru", 5, 12)]
+        merged = _merge_matches([heuristic, specific], ner)
+        assert [m.rule_id for m in merged] == ["pii_phone", "pii_email"]
+
+    def test_log_only_ner_never_replaces_regex(self):
+        weak = self._regex("pii_phone", 5, 15, "log_only", "low")
+        ner = [
+            RuleMatch(
+                rule_id="pii_medical_condition",
+                rule_name="medical",
+                value_hash="h",
+                position=(5, 15),
+                severity="medium",
+                action="log_only",
+            )
+        ]
+        merged = _merge_matches([weak], ner)
+        assert [m.rule_id for m in merged] == ["pii_phone"]

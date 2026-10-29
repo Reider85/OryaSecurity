@@ -43,13 +43,15 @@ def mock_embedding_batcher():
 def mock_vector_searcher():
     """Mock vector searcher."""
     mock = AsyncMock()
-    mock.search.return_value = [
+    hits = [
         SearchResult(
             id="test_attack_1",
             score=0.95,
             payload={"type": "prompt_injection", "severity": "high"}
         )
     ]
+    mock.search.return_value = hits
+    mock.search_or_raise.return_value = hits
     return mock
 
 
@@ -135,7 +137,7 @@ class TestSlowPath:
     async def test_vector_search_unavailable(self, slow_path_instance: SlowPath):
         """Test vector searcher unavailable (returns None)."""
         # Mock vector search to return None
-        with patch.object(slow_path_instance._get_vector_searcher(), "search", return_value=None):
+        with patch.object(slow_path_instance._get_vector_searcher(), "search_or_raise", return_value=None):
             result = await slow_path_instance.process("test prompt")
 
             assert len(result.similar_attacks) == 0
@@ -158,7 +160,7 @@ class TestSlowPath:
         """Test all components degraded gracefully."""
         # Mock all components to return None
         with patch.object(slow_path_instance, "_get_embedding", return_value=None), \
-             patch.object(slow_path_instance._get_vector_searcher(), "search", return_value=None), \
+             patch.object(slow_path_instance._get_vector_searcher(), "search_or_raise", return_value=None), \
              patch.object(slow_path_instance._get_classifier(), "classify", return_value=None):
             
             result = await slow_path_instance.process("test prompt")
@@ -175,9 +177,9 @@ class TestSlowPath:
         """Test clean prompt (no vector hits, benign classification)."""
         # Mock vector search to return no hits above threshold
         mock_searcher = slow_path_instance._get_vector_searcher()
-        mock_searcher.search.return_value = [
-            SearchResult(id="low_score", score=0.8, payload={"type": "benign"})
-        ]
+        low_score_hits = [SearchResult(id="low_score", score=0.8, payload={"type": "benign"})]
+        mock_searcher.search.return_value = low_score_hits
+        mock_searcher.search_or_raise.return_value = low_score_hits
 
         # Mock classifier to return benign
         mock_classifier = slow_path_instance._get_classifier()
@@ -199,9 +201,9 @@ class TestSlowPath:
         """Test aggregation with both vector and ML threats."""
         # Mock vector search with high score
         mock_searcher = slow_path_instance._get_vector_searcher()
-        mock_searcher.search.return_value = [
-            SearchResult(id="high_threat", score=0.95, payload={"type": "jailbreak"})
-        ]
+        high_threat_hits = [SearchResult(id="high_threat", score=0.95, payload={"type": "jailbreak"})]
+        mock_searcher.search.return_value = high_threat_hits
+        mock_searcher.search_or_raise.return_value = high_threat_hits
 
         # Mock classifier with prompt injection
         mock_classifier = slow_path_instance._get_classifier()
@@ -282,6 +284,7 @@ class TestSlowPath:
         """Test that custom dependencies can be injected."""
         custom_batcher = AsyncMock()
         custom_searcher = AsyncMock()
+        custom_searcher.search_or_raise.return_value = []
         custom_classifier = AsyncMock()
 
         custom_slow_path = SlowPath(
@@ -294,7 +297,7 @@ class TestSlowPath:
 
         # Should use injected dependencies, not globals
         custom_batcher.embed.assert_called_once()
-        custom_searcher.search.assert_called_once()
+        custom_searcher.search_or_raise.assert_called_once()
         custom_classifier.classify.assert_called_once()
 
 
@@ -335,8 +338,11 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_success(self):
         """Test circuit breaker with successful calls."""
+        async def ok_func():
+            return "success"
+
         cb = CircuitBreaker("test")
-        result = await cb.call(lambda: "success")
+        result = await cb.call(ok_func)
         
         assert result == "success"
         assert cb.state == "closed"

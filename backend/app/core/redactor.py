@@ -13,6 +13,8 @@ _LABEL_MAP = {
     "pii_ssn_us": "SSN",
     "pii_email": "EMAIL",
     "pii_passport_ru": "PASSPORT_RU",
+    "pii_inn_ru": "INN_RU",
+    "pii_medical_condition": "MEDICAL_CONDITION",
     "secret_aws_key": "AWS_KEY",
     "secret_jwt": "JWT",
     "secret_credit_card": "CREDIT_CARD",

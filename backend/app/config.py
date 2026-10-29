@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     pdp_default_action: str = "allow"
     pdp_block_on_severity: list[str] = ["high", "critical"]
 
+    # Per-tenant fallback policy for the ML classifier circuit breaker
+    # (EP-14 / Prompt 37, ADR-0008): "default" -> degrade (rule-only),
+    # "strict" -> fail-closed (BLOCK + audit "ml_unavailable").
+    # Env: SCANNER_TENANT_POLICIES='{"acme": "strict"}' (JSON).
+    tenant_policies: dict[str, str] = {}
+
     audit_enabled: bool = True
     redact_audit_prompt: bool = True
     policy_version: str = "mvp-1.0"
@@ -48,6 +54,13 @@ class Settings(BaseSettings):
     # version decryptable, so minted PII tokens expire after (ttl, 2*ttl].
     vault_token_ttl_seconds: int = 300
     vault_token_ttl_grace_versions: int = 1  # key versions kept decryptable after a rotation
+
+    # Presidio NER for non-standard PII (EP-13/Prompt 35, ADR-0007)
+    # Requires the optional ``ner`` extra: pip install -e ".[ner]".
+    # When disabled (ALPHA default) detection stays regex-only.
+    presidio_enabled: bool = False
+    presidio_language: str = "ru"
+    presidio_min_score: float = 0.4  # NER hits below this confidence are dropped
 
     llm_provider_url: str = "http://localhost:8001"
     llm_api_path: str = "/v1/chat/completions"
