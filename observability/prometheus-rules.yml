@@ -1,0 +1,16 @@
+# Prometheus alerting rules for the LLM Security Scanner.
+# Loaded by Prometheus via rule_files in prometheus.yml; Alertmanager
+# routing is configured separately (EP-15/Prompt 44, ADR-0008/ADR-0015).
+
+groups:
+  - name: circuit_breakers
+    rules:
+      # EP-14/Prompt 39, ADR-0008: fire when any component's breaker is OPEN
+      # (state value 1) for more than 1 minute.
+      - alert: CircuitBreakerOpen
+        expr: scanner_circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker open: {{ $labels.component }}"
