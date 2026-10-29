@@ -27,6 +27,12 @@ from typing import Any, Optional
 
 import structlog
 
+from app.core.circuit_breakers.vault import (
+    VAULT_UNAVAILABLE_REASON,
+    VaultCircuitBreaker,
+    VaultUnavailableFailClosed,
+    get_vault_breaker,
+)
 from app.core.detectors.pii import PIIDetector
 from app.core.metrics import (
     scanner_redaction_failures_total,
@@ -56,7 +62,16 @@ except ImportError:  # pragma: no cover - no-op tracer until OTel is installed
 
 logger = structlog.get_logger(__name__)
 
-VAULT_UNAVAILABLE_REASON = "vault_unavailable_cannot_redact"
+# Canonical reason lives in the circuit breaker module (EP-14/Prompt 38);
+# re-exported here for the proxy / streaming call sites.
+__all__ = [
+    "PIIRedactor",
+    "RedactedText",
+    "RedactionOutcome",
+    "TokenInfo",
+    "VAULT_UNAVAILABLE_REASON",
+    "redact_messages_for_llm",
+]
 
 
 @dataclass(frozen=True)
@@ -131,14 +146,22 @@ class PIIRedactor:
         detector: PII detector; defaults to :func:`make_detector` (Prompt 35):
             YAML regex rules plus Presidio NER when ``presidio_enabled``,
             regex-only otherwise.
+        vault_breaker: optional fail-closed circuit breaker (EP-14/Prompt 38)
+            wrapping ``vault_client.encode``. When provided, every encode goes
+            through it and a :class:`VaultUnavailableFailClosed` is converted
+            into the fail-closed :class:`RedactedText` (empty text + error).
+            When ``None`` the client is called directly (its own transport
+            breaker still applies).
     """
 
     def __init__(
         self,
         vault_client: Optional[VaultClient] = None,
         detector: Optional[PIIDetector] = None,
+        vault_breaker: Optional[VaultCircuitBreaker] = None,
     ):
         self.vault_client = vault_client
+        self.vault_breaker = vault_breaker
         if detector is None:
             # Local import: detectors.pii_ner reaches back into this package
             # at module level (circular if imported at load time).
@@ -189,26 +212,67 @@ class PIIRedactor:
                 seen.add(key)
                 unique.append((value, label, match))
 
-            results = await asyncio.gather(
-                *(self.vault_client.encode(value, context=tenant_id) for value, _, _ in unique)
-            )
+            if self.vault_breaker is not None:
+                # Component-level fail-closed breaker (EP-14/Prompt 38): encode
+                # raises VaultUnavailableFailClosed -> empty text + error.
+                raw = await asyncio.gather(
+                    *(
+                        self.vault_breaker.encode(
+                            value, context=tenant_id, tenant_id=tenant_id
+                        )
+                        for value, _, _ in unique
+                    ),
+                    return_exceptions=True,
+                )
+                value_to_token: dict[tuple[str, str], str] = {}
+                for (value, label, _match), token_or_exc in zip(unique, raw):
+                    if isinstance(token_or_exc, VaultUnavailableFailClosed):
+                        error = token_or_exc.reason
+                        scanner_redaction_failures_total.labels(error=error).inc()
+                        span.set_attribute("error", True)
+                        span.set_attribute("scanner.error", error)
+                        logger.warning(
+                            "redaction_encode_failed",
+                            error=error,
+                            type=label,
+                            cause=token_or_exc.context.get("cause"),
+                        )
+                        # Fail-closed: empty text, no tokens — caller must block.
+                        return RedactedText(redacted_text="", tokens=[], error=error)
+                    if isinstance(token_or_exc, BaseException):
+                        error = VAULT_UNAVAILABLE_REASON
+                        scanner_redaction_failures_total.labels(error=error).inc()
+                        span.set_attribute("error", True)
+                        span.set_attribute("scanner.error", error)
+                        logger.warning(
+                            "redaction_encode_failed",
+                            error=error,
+                            type=label,
+                            exception=str(token_or_exc),
+                        )
+                        return RedactedText(redacted_text="", tokens=[], error=error)
+                    value_to_token[(value, label)] = f"<{label}_T_{token_or_exc}>"
+            else:
+                results = await asyncio.gather(
+                    *(self.vault_client.encode(value, context=tenant_id) for value, _, _ in unique)
+                )
 
-            value_to_token: dict[tuple[str, str], str] = {}
-            for (value, label, match), result in zip(unique, results):
-                if not result.ok:
-                    error = result.error or "vault_encode_failed"
-                    scanner_redaction_failures_total.labels(error=error).inc()
-                    span.set_attribute("error", True)
-                    span.set_attribute("scanner.error", error)
-                    logger.warning(
-                        "redaction_encode_failed",
-                        error=error,
-                        type=label,
-                        engine=result.engine or None,
-                    )
-                    # Fail-closed: empty text, no tokens — caller must block.
-                    return RedactedText(redacted_text="", tokens=[], error=error)
-                value_to_token[(value, label)] = f"<{label}_T_{result.value}>"
+                value_to_token = {}
+                for (value, label, match), result in zip(unique, results):
+                    if not result.ok:
+                        error = result.error or "vault_encode_failed"
+                        scanner_redaction_failures_total.labels(error=error).inc()
+                        span.set_attribute("error", True)
+                        span.set_attribute("scanner.error", error)
+                        logger.warning(
+                            "redaction_encode_failed",
+                            error=error,
+                            type=label,
+                            engine=result.engine or None,
+                        )
+                        # Fail-closed: empty text, no tokens — caller must block.
+                        return RedactedText(redacted_text="", tokens=[], error=error)
+                    value_to_token[(value, label)] = f"<{label}_T_{result.value}>"
 
             tokens: list[TokenInfo] = []
             redacted = text
@@ -250,6 +314,7 @@ async def redact_messages_for_llm(
     *,
     vault_client: Optional[VaultClient] = None,
     detector: Optional[PIIDetector] = None,
+    vault_breaker: Optional[VaultCircuitBreaker] = None,
 ) -> RedactionOutcome:
     """Tokenize every non-empty message content in place (outbound proxy path).
 
@@ -257,10 +322,22 @@ async def redact_messages_for_llm(
     ``content`` attribute is replaced with the tokenized text. Returns a
     fail-closed :class:`RedactionOutcome` — on ``ok=False`` the caller must
     block the request instead of forwarding it.
+
+    When *vault_client* is not given, the process singletons are used and the
+    singleton fail-closed breaker (EP-14/Prompt 38) is attached automatically
+    so the production path is always guarded by the component-level CB. An
+    explicitly injected client (unit tests) keeps the direct path unless a
+    breaker is passed explicitly as well.
     """
     if vault_client is None:
         vault_client = get_vault_client()
-    redactor = PIIRedactor(vault_client=vault_client, detector=detector)
+        if vault_breaker is None:
+            vault_breaker = get_vault_breaker()
+    redactor = PIIRedactor(
+        vault_client=vault_client,
+        detector=detector,
+        vault_breaker=vault_breaker,
+    )
 
     outcome = RedactionOutcome()
     for message in messages:

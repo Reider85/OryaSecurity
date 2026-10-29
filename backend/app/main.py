@@ -26,6 +26,10 @@ from app.core.circuit_breakers.ml_classifier import (
     MLClassifierCircuitBreaker,
     set_ml_classifier_breaker,
 )
+from app.core.circuit_breakers.vault import (
+    VaultCircuitBreaker,
+    set_vault_breaker,
+)
 from app.db.session import init_db, close_db
 from app.db.redis_client import init_redis, close_redis
 from app.db.qdrant_client import init_qdrant, close_qdrant
@@ -86,7 +90,11 @@ async def startup_event():
     init_opa_client()
 
     # Initialize Vault redaction client (EP-13/Prompt 31) — no-op when disabled
-    init_vault_client()
+    vault_client = init_vault_client()
+    if vault_client is not None:
+        # Component-level fail-closed breaker (EP-14/Prompt 38): PII redaction
+        # always BLOCKs with vault_unavailable_cannot_redact when Vault is down.
+        set_vault_breaker(VaultCircuitBreaker(vault_client))
     
     # Initialize uptime and Python info metrics
     scanner_uptime_seconds.set(time.time())
@@ -101,6 +109,7 @@ async def startup_event():
 async def shutdown_event():
     """Close Qdrant, Redis, and database connections on shutdown."""
     await close_opa_client()
+    set_vault_breaker(None)
     await close_vault_client()
     await close_qdrant()
     await close_redis()
