@@ -14,6 +14,7 @@ from app.core.audit import (
     _coerce_request_id,
     _normalize_explainability,
     _normalize_rules,
+    count_events,
     update_event_explainability,
     write_event,
     query_events,
@@ -39,6 +40,9 @@ class FakeResult:
 
     def scalars(self):
         return FakeScalarResult(self._rows)
+
+    def scalar(self):
+        return self._rows[0] if self._rows else 0
 
 
 class FakeSession:
@@ -119,7 +123,7 @@ class TestModel:
         assert columns["tenant_id"].type.length == 64
         assert columns["prompt_hash"].type.length == 64
         assert columns["verdict"].type.length == 16
-        assert columns["policy_version"].type.length == 16
+        assert columns["policy_version"].type.length == 32
         assert columns["rules_matched"].type.compile(dialect=pg) == "JSONB"
 
     def test_required_columns(self) -> None:
@@ -369,6 +373,28 @@ class TestQueryEvents:
 
         assert "prompt_hash" in compiled(session.executed[0])
 
+    async def test_policy_version_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        session = install_session(monkeypatch, FakeSession())
+
+        await query_events(policy_version="1.0")
+
+        sql = compiled(session.executed[0])
+        assert "policy_version" in sql
+        assert "1.0" in sql
+        assert "LIKE" in sql
+
+    async def test_count_events_policy_version_filter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = install_session(monkeypatch, FakeSession())
+
+        await count_events(policy_version="2.1")
+
+        sql = compiled(session.executed[0])
+        assert "policy_version" in sql
+        assert "2.1" in sql
+        assert "LIKE" in sql
+
     async def test_time_range_filter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = install_session(monkeypatch, FakeSession())
         start = datetime(2026, 9, 1, tzinfo=timezone.utc)
@@ -398,13 +424,14 @@ class TestQueryEvents:
             tenant_id="tenant-a",
             verdict="allow",
             prompt_hash="7" * 64,
+            policy_version="1.0",
             start_ts=now - timedelta(days=1),
             end_ts=now,
             limit=5,
         )
 
         sql = compiled(session.executed[0])
-        for fragment in ("tenant_id", "verdict", "prompt_hash", "ts >=", "ts <="):
+        for fragment in ("tenant_id", "verdict", "prompt_hash", "policy_version", "ts >=", "ts <="):
             assert fragment in sql
         assert "LIMIT" in sql
 

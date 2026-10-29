@@ -54,7 +54,7 @@ class AuditEvent(Base):
     rules_matched: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"
     )
-    policy_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    policy_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     latency_ms: Mapped[float | None] = mapped_column(REAL, nullable=True)
     explainability: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 

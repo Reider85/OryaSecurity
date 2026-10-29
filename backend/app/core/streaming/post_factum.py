@@ -16,7 +16,7 @@ from app.core.metrics import (
     scanner_post_factum_duration_seconds,
     scanner_post_factum_total,
 )
-from app.core.pdp import decide, scan_text
+from app.core.pdp import decide, get_active_policy_version, scan_text
 
 logger = structlog.get_logger()
 
@@ -394,6 +394,7 @@ class PostFactumAnalyzer:
                 reason=f"Post-factum flag: {'; '.join(reason_parts)}",
                 rules_matched=rules_matched or None,
                 tenant_id=tenant_id,
+                policy_version=await get_active_policy_version(),
                 latency_ms=result.latency_ms,
                 metadata={
                     "event": "post_factum_flag",

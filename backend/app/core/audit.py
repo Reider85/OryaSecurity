@@ -25,6 +25,7 @@ def write_audit_event(
     latency_ms: float,
     metadata: dict | None = None,
     severity: str | None = None,
+    policy_version: str | None = None,
 ) -> None:
     logger.info(
         "audit_event",
@@ -36,6 +37,7 @@ def write_audit_event(
         reason=reason,
         rules_matched_count=len(rules_matched),
         latency_ms=round(latency_ms, 2),
+        policy_version=policy_version,
         metadata=metadata or {},
     )
 
@@ -152,6 +154,7 @@ async def write_event(
         reason=event.reason or "",
         rules_matched=event.rules_matched,
         latency_ms=event.latency_ms or 0.0,
+        policy_version=event.policy_version,
         metadata=metadata,
     )
     return event
@@ -232,6 +235,7 @@ async def count_events(
     tenant_id: str | None = None,
     verdict: str | None = None,
     prompt_hash: str | None = None,
+    policy_version: str | None = None,
     start_ts: datetime | None = None,
     end_ts: datetime | None = None,
 ) -> int:
@@ -246,6 +250,9 @@ async def count_events(
         # Prefix match, matching query_events(), so `total` agrees with
         # len(items) for partial hash searches from the UI.
         stmt = stmt.where(AuditEvent.prompt_hash.like(f"{prompt_hash}%"))
+    if policy_version is not None:
+        # Prefix match, matching query_events() (ALPHA Prompt 29).
+        stmt = stmt.where(AuditEvent.policy_version.like(f"{policy_version}%"))
     if start_ts is not None:
         stmt = stmt.where(AuditEvent.ts >= start_ts)
     if end_ts is not None:
@@ -261,6 +268,7 @@ async def query_events(
     tenant_id: str | None = None,
     verdict: str | None = None,
     prompt_hash: str | None = None,
+    policy_version: str | None = None,
     start_ts: datetime | None = None,
     end_ts: datetime | None = None,
     limit: int = 50,
@@ -275,6 +283,8 @@ async def query_events(
         stmt = stmt.where(AuditEvent.verdict == verdict)
     if prompt_hash is not None:
         stmt = stmt.where(AuditEvent.prompt_hash.like(f"{prompt_hash}%"))
+    if policy_version is not None:
+        stmt = stmt.where(AuditEvent.policy_version.like(f"{policy_version}%"))
     if start_ts is not None:
         stmt = stmt.where(AuditEvent.ts >= start_ts)
     if end_ts is not None:

@@ -261,6 +261,7 @@ class TestPostFactumRules:
         assert audit_call["severity"] == "high"
         assert audit_call["tenant_id"] == TENANT_ID
         assert audit_call["request_id"] == REQUEST_ID
+        assert audit_call["policy_version"] == settings.policy_version
         assert audit_call["metadata"]["event"] == "post_factum_flag"
         assert audit_call["metadata"]["direction"] == "response"
 
@@ -270,6 +271,29 @@ class TestPostFactumRules:
         assert message["severity"] == "high"
         assert message["request_id"] == REQUEST_ID
         assert message["tenant_id"] == TENANT_ID
+
+    @pytest.mark.asyncio
+    async def test_audit_policy_version_comes_from_opa(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Prompt 29: post-factum audit records the ACTIVE OPA bundle version."""
+        async def _fake_active_version() -> str:
+            return "9.9.9"
+
+        monkeypatch.setattr(
+            "app.core.streaming.post_factum.get_active_policy_version",
+            _fake_active_version,
+        )
+        analyzer, audit_writer, _ = _make_analyzer()
+
+        await analyzer.analyze(
+            "Sure, the customer's SSN is 123-45-6789",
+            request_id=REQUEST_ID,
+            tenant_id=TENANT_ID,
+        )
+
+        assert len(audit_writer.calls) == 1
+        assert audit_writer.calls[0]["policy_version"] == "9.9.9"
 
 
 # ---------------------------------------------------------------------------

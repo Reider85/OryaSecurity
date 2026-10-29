@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 interface AuditFiltersState {
   verdict?: string;
   prompt_hash?: string;
+  policy_version?: string;
   start_ts?: string;
   end_ts?: string;
 }

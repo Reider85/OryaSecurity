@@ -16,6 +16,7 @@ async def get_audit_events(
     verdict: Optional[str] = Query(None, pattern="^(allow|block)$", description="Filter by verdict"),
     tenant_id: Optional[str] = Query(None, description="Filter by tenant ID"),
     prompt_hash: Optional[str] = Query(None, description="Filter by prompt hash"),
+    policy_version: Optional[str] = Query(None, description="Filter by policy version (prefix match)"),
     start_ts: Optional[datetime] = Query(None, description="Filter by start timestamp"),
     end_ts: Optional[datetime] = Query(None, description="Filter by end timestamp"),
     api_key: str = Depends(verify_api_key)
@@ -32,6 +33,7 @@ async def get_audit_events(
         tenant_id=tenant_id,
         verdict=verdict,
         prompt_hash=prompt_hash,
+        policy_version=policy_version,
         start_ts=start_ts,
         end_ts=end_ts,
         limit=limit,
@@ -43,6 +45,7 @@ async def get_audit_events(
         tenant_id=tenant_id,
         verdict=verdict,
         prompt_hash=prompt_hash,
+        policy_version=policy_version,
         start_ts=start_ts,
         end_ts=end_ts
     )

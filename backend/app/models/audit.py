@@ -8,6 +8,7 @@ class AuditQueryRequest(BaseModel):
     tenant_id: Optional[str] = None
     verdict: Optional[str] = None  # "allow" | "block" | None (all)
     prompt_hash: Optional[str] = None
+    policy_version: Optional[str] = None  # prefix match (ALPHA Prompt 29)
     start_ts: Optional[datetime] = None
     end_ts: Optional[datetime] = None
     limit: int = 50

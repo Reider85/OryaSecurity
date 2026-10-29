@@ -96,6 +96,45 @@ class TestAuditEndpoint:
         assert len(body["items"]) == 3
         assert all(item["prompt_hash"].startswith("abc") for item in body["items"])
 
+    async def test_policy_version_prefix_filter(
+        self, real_postgres, clean_audit, client, auth_headers
+    ) -> None:
+        """Prompt 29: policy_version filter is a prefix match; total agrees."""
+        for version in ("1.0.0", "1.0.1", "2.0.0"):
+            await write_event(
+                request_id=str(uuid.uuid4()),
+                tenant_id="t-pv",
+                prompt_hash="a" * 64,
+                verdict="allow",
+                policy_version=version,
+            )
+
+        body = (
+            await client.get(
+                "/api/v1/audit?tenant_id=t-pv&policy_version=1.0", headers=auth_headers
+            )
+        ).json()
+
+        assert body["total"] == 2
+        assert len(body["items"]) == 2
+        assert all(item["policy_version"].startswith("1.0") for item in body["items"])
+
+        full = (
+            await client.get(
+                "/api/v1/audit?tenant_id=t-pv&policy_version=2.0.0", headers=auth_headers
+            )
+        ).json()
+        assert full["total"] == 1
+        assert full["items"][0]["policy_version"] == "2.0.0"
+
+        none_match = (
+            await client.get(
+                "/api/v1/audit?tenant_id=t-pv&policy_version=9.9", headers=auth_headers
+            )
+        ).json()
+        assert none_match["total"] == 0
+        assert none_match["items"] == []
+
     async def test_rules_matched_shape(self, real_postgres, clean_audit, client, auth_headers) -> None:
         """rules_matched entries keep {rule_id, position:[start,end]}."""
         await seed("t-shape", "block", "c" * 64)

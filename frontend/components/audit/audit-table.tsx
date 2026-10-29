@@ -88,6 +88,16 @@ export function AuditTable({ data, total, page, perPage, onPageChange }: AuditTa
       },
     },
     {
+      accessorKey: "policy_version",
+      header: "Policy Version",
+      cell: ({ getValue }) => {
+        const version = getValue() as string | null;
+        if (!version) return "-";
+        return <span className="font-mono text-sm">{version}</span>;
+      },
+      enableSorting: true,
+    },
+    {
       accessorKey: "reason",
       header: "Reason",
       cell: ({ getValue }) => getValue() as string || "-",

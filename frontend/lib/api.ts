@@ -190,6 +190,7 @@ export const api = {
     page?: number; 
     verdict?: string;
     prompt_hash?: string;
+    policy_version?: string;
     start_ts?: string;
     end_ts?: string;
   }, token?: string) => {
@@ -198,6 +199,7 @@ export const api = {
     if (params?.page) searchParams.set("page", String(params.page));
     if (params?.verdict) searchParams.set("verdict", params.verdict);
     if (params?.prompt_hash) searchParams.set("prompt_hash", params.prompt_hash);
+    if (params?.policy_version) searchParams.set("policy_version", params.policy_version);
     if (params?.start_ts) searchParams.set("start_ts", params.start_ts);
     if (params?.end_ts) searchParams.set("end_ts", params.end_ts);
     const query = searchParams.toString();

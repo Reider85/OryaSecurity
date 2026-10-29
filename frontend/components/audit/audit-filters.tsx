@@ -11,6 +11,7 @@ interface AuditFiltersProps {
   onApply: (filters: {
     verdict?: string;
     prompt_hash?: string;
+    policy_version?: string;
     start_ts?: string;
     end_ts?: string;
   }) => void;
@@ -21,6 +22,7 @@ interface AuditFiltersProps {
 export function AuditFilters({ onApply, onReset, onExport }: AuditFiltersProps) {
   const [verdict, setVerdict] = useState<string>("");
   const [promptHash, setPromptHash] = useState<string>("");
+  const [policyVersion, setPolicyVersion] = useState<string>("");
   const [startTs, setStartTs] = useState<string>("");
   const [endTs, setEndTs] = useState<string>("");
 
@@ -28,6 +30,7 @@ export function AuditFilters({ onApply, onReset, onExport }: AuditFiltersProps) 
     const filters = {
       verdict: verdict || undefined,
       prompt_hash: promptHash || undefined,
+      policy_version: policyVersion || undefined,
       start_ts: startTs || undefined,
       end_ts: endTs || undefined,
     };
@@ -37,6 +40,7 @@ export function AuditFilters({ onApply, onReset, onExport }: AuditFiltersProps) 
   const handleReset = () => {
     setVerdict("");
     setPromptHash("");
+    setPolicyVersion("");
     setStartTs("");
     setEndTs("");
     onReset();
@@ -81,6 +85,15 @@ export function AuditFilters({ onApply, onReset, onExport }: AuditFiltersProps) 
             placeholder="Search by prompt hash..."
             value={promptHash}
             onChange={(e) => setPromptHash(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Policy Version</label>
+          <Input
+            placeholder="Search by policy version..."
+            value={policyVersion}
+            onChange={(e) => setPolicyVersion(e.target.value)}
           />
         </div>
         
