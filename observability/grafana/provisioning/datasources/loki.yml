@@ -1,0 +1,29 @@
+# EP-15/Prompt 42: Loki datasource for Grafana
+# 
+# Provisioned into Grafana at startup via /etc/grafana/provisioning/datasources/
+# Enables LogQL queries in Grafana Explore and dashboards.
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    orgId: 1
+    url: http://loki:3100
+    basicAuth: false
+    isDefault: false
+    version: 1
+    editable: false
+    jsonData:
+      # Derived field to link Loki traces to Jaeger
+      # Matches trace_id in JSON logs and creates "Trace" link in Explore
+      derivedFields:
+        - datasourceUid: jaeger  # References the Jaeger datasource
+          matcherRegex: '"trace_id":"([0-9a-f]+)"'
+          name: Trace
+          url: http://jaeger:16686/search?traceID=$${__value.raw}
+      # Max lines per query (prevents huge responses)
+      maxLines: 1000
+    # Secure JSON data (if needed for authentication)
+    secureJsonData: {}

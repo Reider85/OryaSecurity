@@ -68,6 +68,18 @@ async def scan_endpoint(
             request_id=request_id,
             cache="HIT",
         )
+        
+        # Log scan_complete event for cache hit
+        logger.info(
+            "scan_complete",
+            verdict=cached["verdict"],
+            tenant_id=auth_info.tenant_id or body.tenant_id,
+            request_id=request_id,
+            latency_ms=latency_ms,
+            cache_hit=True,
+            policy_version=policy_version,
+        )
+        
         return JSONResponse(content=response.model_dump())
 
     matches, prompt_hash = scan_text(body.prompt)
@@ -131,6 +143,17 @@ async def scan_endpoint(
         latency_ms=latency_ms,
         request_id=request_id,
         cache="MISS",
+    )
+    
+    # Log scan_complete event for normal scan
+    logger.info(
+        "scan_complete",
+        verdict=verdict.action,
+        tenant_id=auth_info.tenant_id or body.tenant_id,
+        request_id=request_id,
+        latency_ms=latency_ms,
+        cache_hit=False,
+        policy_version=policy_version,
     )
 
     return JSONResponse(content=response.model_dump())

@@ -116,3 +116,30 @@ class TestScanEndpoint:
         data = resp.json()
         assert data["verdict"] == "block"
         assert len(data["rules_matched"]) >= 2
+
+    def test_scan_complete_event_logged(self, client: TestClient, auth_headers: dict) -> None:
+        """Test that scan_complete event is logged with proper fields."""
+        import structlog
+        from unittest.mock import patch
+        
+        # Capture logs using structlog's capture_logs
+        with structlog.testing.capture_logs() as capture_logs:
+            resp = client.post("/scan", json={"prompt": "Hello, how are you?"}, headers=auth_headers)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["verdict"] == "allow"
+        
+        # Check that scan_complete event was logged
+        scan_complete_logs = [log for log in capture_logs if log["event"] == "scan_complete"]
+        assert len(scan_complete_logs) >= 1
+        
+        # Check required fields in scan_complete log
+        log = scan_complete_logs[0]
+        assert "verdict" in log
+        assert "tenant_id" in log
+        assert "request_id" in log
+        assert "latency_ms" in log
+        assert "cache_hit" in log
+        assert "policy_version" in log
+        assert log["verdict"] == "allow"
+        assert log["cache_hit"] is False

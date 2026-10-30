@@ -39,18 +39,14 @@ from app.core.detectors import get_shared_toxicity_detector
 from app.core.pdp.opa_client import init_opa_client, close_opa_client
 from app.core.redaction.vault_client import init_vault_client, close_vault_client
 from app.core.observability import init_telemetry, shutdown_telemetry
+from app.core.logging import setup_logging, get_logger
 import time
 import sys
 import platform
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ],
-)
-logger = structlog.get_logger()
+# Setup structured logging
+setup_logging(settings.log_level)
+logger = get_logger(__name__)
 
 app = FastAPI(
     title=settings.app_name,

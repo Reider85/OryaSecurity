@@ -7,6 +7,7 @@ datasources:
     url: http://jaeger:16686
     isDefault: false
     editable: false
+    uid: jaeger
     jsonData:
       queryTimeout: 60s
       tracesperpage: 500

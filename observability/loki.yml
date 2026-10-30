@@ -1,0 +1,66 @@
+# EP-15/Prompt 42: Loki configuration with retention
+# 
+# Configures Loki with 7-day retention for structured logs.
+# Mounted into loki container at /etc/loki/loki.yml
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+query_range:
+  results_cache:
+    cache_config:
+      default_expiration: 1h
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+ruler:
+  alertmanager_url: http://localhost:9093
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  enable_api: true
+  enable_alertmanager_v2: true
+
+# Retention configuration: keep logs for 7 days
+limits_config:
+  retention_period: 168h  # 7 days
+  max_query_length: 0  # No limit on query time range (within retention)
+  max_query_parallelism: 20
+
+# Compactor for efficient storage and retention
+compactor:
+  working_directory: /loki/compactor
+  shared_store: filesystem
+  compactor:
+    retention_enabled: true
+    retention_period: 168h  # 7 days
+    chunk_block_size: 1460  # days (slightly > 7 days to avoid edge cases)
+    chunk_encoding: snappy
+    chunk_target_size: 15MB
+    max_chunk_age: 1h
+    compact_on_startup: false
+    idle_compaction: false
+    compaction_interval: 1h

@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Dict, Optional
 
 import jwt
+import structlog
 from fastapi import Request, HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -72,6 +73,9 @@ async def authenticate_api_key(api_key: str, request: Request | None = None) -> 
         # Store tenant_id in request state for downstream use
         if request:
             request.state.tenant_id = record["tenant_id"]
+        
+        # Bind tenant_id to structlog context for the duration of this request
+        structlog.contextvars.bind_contextvars(tenant_id=record["tenant_id"])
 
         return AuthInfo(api_key=api_key, tenant_id=record["tenant_id"])
 
@@ -104,6 +108,8 @@ async def verify_api_key(
             raise HTTPException(status_code=401, detail="Token missing tenant claim")
         if request:
             request.state.tenant_id = tenant_id
+        # Bind tenant_id to structlog context for the duration of this request
+        structlog.contextvars.bind_contextvars(tenant_id=tenant_id)
         return AuthInfo(api_key=token, tenant_id=tenant_id)
 
     # 2) Raw API key path (existing behaviour)

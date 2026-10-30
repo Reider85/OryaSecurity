@@ -133,6 +133,7 @@ class Settings(BaseSettings):
     ws_notifications_enabled: bool = True
 
     log_level: str = "INFO"
+    log_redaction_enabled: bool = True
 
     # OpenTelemetry tracing (Prompt 40)
     otel_tracing_enabled: bool = True

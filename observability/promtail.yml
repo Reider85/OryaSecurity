@@ -1,0 +1,69 @@
+# EP-15/Prompt 42: Loki structured logs - Promtail configuration
+# 
+# Collects Docker container logs via docker_sd + docker.sock, extracts JSON fields,
+# and sends to Loki with structured labels for efficient LogQL queries.
+#
+# LogQL examples (run in Grafana Explore):
+#   - {app="scanner"} |= "error"                    # All error logs
+#   - {app="scanner", event="scan_complete"}        # All scan completions  
+#   - {app="scanner", event="scan_complete", verdict="block"}  # Blocked scans
+#   - rate({app="scanner", level="ERROR"}[5m]) > 0.1  # Error rate alert
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    # Discover Docker containers dynamically via docker.sock
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    
+    # Relabel containers to extract service name and container name as labels
+    relabel_configs:
+      # Extract container name without leading slash (e.g., "/scanner" -> "scanner")
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+        
+      # Extract service name from docker compose labels (e.g., "scanner")
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: app
+        
+      # Add container ID as label for debugging
+      - source_labels: ['__meta_docker_container_id']
+        target_label: container_id
+    
+    # Pipeline to parse JSON logs and extract structured fields
+    pipeline_stages:
+      # Parse Docker container logs (JSON format from our logging)
+      - docker:
+          # Parse container logs in JSON format
+          json:
+            expressions:
+              level: level
+              event: event
+              msg: msg
+              ts: ts
+              request_id: request_id
+              tenant_id: tenant_id
+              trace_id: trace_id
+              span_id: span_id
+              verdict: verdict
+          # Add parsed fields as labels for efficient LogQL queries
+          # (Only low-cardinality fields that will be used in WHERE clauses)
+          labels:
+            level: ""
+            event: ""
+            verdict: ""
+          # Keep timestamp field for Loki time series
+          timestamp:
+            source: ts
+            format: RFC3339Nano

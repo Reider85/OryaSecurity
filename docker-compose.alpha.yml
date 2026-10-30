@@ -347,6 +347,8 @@ services:
       SCANNER_VAULT_TOKEN: ${VAULT_TOKEN:-}
       # OpenTelemetry (EP-15/Prompt 41): point OTLP to collector
       SCANNER_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # EP-15/Prompt 42: PII redaction in structured logs
+      SCANNER_LOG_REDACTION_ENABLED: ${LOG_REDACTION_ENABLED:-true}
     depends_on:
       qdrant1:
         condition: service_started
@@ -390,8 +392,6 @@ services:
       - "16686:16686"  # UI
     volumes:
       - jaeger_data:/jaeger-query/storage
-    networks:
-      - scanner
 
   # EP-15/Prompt 41: OTel Collector with tail sampling
   otel-collector:
@@ -403,8 +403,30 @@ services:
       - "4317:4317"  # OTLP gRPC
     depends_on:
       - jaeger
-    networks:
-      - scanner
+
+  # EP-15/Prompt 42: Loki structured logs
+  loki:
+    image: grafana/loki:3.2.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - loki_data:/loki
+      - ./observability/loki.yml:/etc/loki/loki.yml:ro
+    ports:
+      - "3100:3100"
+
+  # EP-15/Prompt 42: Promtail log collector
+  promtail:
+    image: grafana/promtail:3.2.0
+    restart: unless-stopped
+    volumes:
+      - ./observability/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail_positions:/positions
+    depends_on:
+      - loki
+    ports:
+      - "9080:9080"
 
 volumes:
   # Reuse volumes from docker-compose.yml
@@ -420,3 +442,6 @@ volumes:
   vault1_data:
   vault2_data:
   vault3_data:
+  # EP-15/Prompt 42: Loki & Promtail volumes
+  loki_data:
+  promtail_positions:

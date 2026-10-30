@@ -31,6 +31,7 @@ import time
 import uuid
 from typing import Awaitable, Callable
 
+import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -127,7 +128,16 @@ class ScannerHeadersMiddleware(BaseHTTPMiddleware):
         setattr(request.state, _STATE_START_TIME, time.perf_counter())
         setattr(request.state, _STATE_REQUEST_ID, request_id)
 
-        response = await call_next(request)
+        # Bind request_id to structlog context for the duration of this request
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        
+        try:
+            response = await call_next(request)
+        finally:
+            # Clear context to prevent leakage to subsequent requests
+            structlog.contextvars.clear_contextvars()
+
+        return response
 
         # Latency covers the endpoint plus any middleware already inside us.
         start_time = getattr(request.state, _STATE_START_TIME, None)
