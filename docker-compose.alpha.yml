@@ -345,6 +345,8 @@ services:
       # Empty => Vault client stays initialized-but-tokenless; encode/decode fail
       # through the circuit breaker (redaction fails closed downstream).
       SCANNER_VAULT_TOKEN: ${VAULT_TOKEN:-}
+      # OpenTelemetry (EP-15/Prompt 41): point OTLP to collector
+      SCANNER_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     depends_on:
       qdrant1:
         condition: service_started
@@ -379,8 +381,30 @@ services:
       vault1:
         condition: service_started
 
-  # Future ALPHA services will be added here:
-  # jaeger, loki, alertmanager (EP-15/Prompts 41, 42, 44)
+  # EP-15/Prompt 41: Jaeger + trace sampling
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    ports:
+      - "16686:16686"  # UI
+    volumes:
+      - jaeger_data:/jaeger-query/storage
+    networks:
+      - scanner
+
+  # EP-15/Prompt 41: OTel Collector with tail sampling
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol/config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC
+    depends_on:
+      - jaeger
+    networks:
+      - scanner
 
 volumes:
   # Reuse volumes from docker-compose.yml

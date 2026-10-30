@@ -71,9 +71,25 @@ def init_telemetry(app, *, span_exporter: Optional[SpanExporter] = None) -> None
         logger.info("telemetry_otlp_endpoint", endpoint=endpoint)
         exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
 
-    # Add batch processor
-    span_processor = BatchSpanProcessor(exporter)
-    tracer_provider.add_span_processor(span_processor)
+    # Configure sampler (Prompt 41: tail sampling support)
+    if settings.otel_sampling_ratio < 1.0:
+        from opentelemetry.sdk.trace.sampling import (
+            TraceIdRatioBased,
+            ParentBased,
+        )
+        sampler = ParentBased(TraceIdRatioBased(settings.otel_sampling_ratio))
+        tracer_provider.add_span_processor(
+            BatchSpanProcessor(exporter, sampler=sampler)
+        )
+        logger.info(
+            "telemetry_sampler_configured",
+            sampler_type="ParentBased(TraceIdRatioBased)",
+            ratio=settings.otel_sampling_ratio,
+        )
+    else:
+        # Default: always_on (let collector do tail sampling)
+        tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+        logger.info("telemetry_sampler_default", sampler="always_on")
 
     # Instrument FastAPI app (only once)
     if not _instrumentation_initialized:

@@ -1,0 +1,13 @@
+apiVersion: 1
+
+datasources:
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    isDefault: false
+    editable: false
+    jsonData:
+      queryTimeout: 60s
+      tracesperpage: 500
+      traceobjectsperspan: 500

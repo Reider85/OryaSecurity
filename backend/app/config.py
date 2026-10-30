@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     otel_tracing_enabled: bool = True
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     otel_service_version: str = "0.2.0"
+    otel_sampling_ratio: float = 1.0
 
     model_config = {"env_prefix": "SCANNER_"}
 
