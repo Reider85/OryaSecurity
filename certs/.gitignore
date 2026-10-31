@@ -1,0 +1,4 @@
+# Сертификаты для Envoy ingress (EP-35/Prompt 46) не коммитятся.
+# Сгенерировать dev-сертификаты: bash backend/scripts/gen_certs.sh
+*
+!.gitignore

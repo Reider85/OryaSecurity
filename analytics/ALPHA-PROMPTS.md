@@ -1584,7 +1584,7 @@ ALPHA exit checklist (для phase gate review):
 [ ] Grafana operational dashboard (6 panels)
 [x] Alertmanager + 5 базовых alerts
 [ ] PagerDuty integration для Critical
-[ ] Envoy frontend с TLS termination
+[x] Envoy frontend с TLS termination
 [ ] DoS protection: token length, complexity score
 [ ] ML input sanitization (anti-injection)
 [ ] Rate limit на ML endpoints

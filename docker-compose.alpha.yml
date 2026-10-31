@@ -443,6 +443,42 @@ services:
     ports:
       - "9093:9093"
 
+  # EP-35/Prompt 46: Envoy frontend proxy с TLS termination (ADR-0001).
+  #
+  # Публичная точка входа: :80 -> 301 https, :443 -> TLS + routing:
+  #   /v1/, /v2/, /api/, /scan, /metrics, /health, /docs, /redoc -> scanner:8000
+  #   /                                                          -> ui:3000
+  # Rate limit 100 RPS per IP; access log (JSON) -> Promtail -> Loki, {app="envoy"}.
+  #
+  # Перед первым запуском сгенерировать dev-сертификаты:
+  #   bash backend/scripts/gen_certs.sh
+  #
+  # Без depends_on ui: ui имеет profiles:["ui"] в docker-compose.yml, и жёсткая
+  # зависимость сломала бы запуск envoy без этого профиля (Envoy деградирует
+  # до 503 на / при незапущенном ui). Запуск полного стека с UI:
+  #   docker compose -f docker-compose.yml -f docker-compose.alpha.yml --profile ui up -d
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    restart: unless-stopped
+    volumes:
+      - ./observability/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./certs:/etc/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+      # Envoy admin (stats, config dump) — только с loopback хоста
+      - "127.0.0.1:9901:9901"
+    depends_on:
+      scanner:
+        condition: service_started
+    healthcheck:
+      # TCP-level: образ не содержит curl/wget, есть bash.
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/443' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   # Reuse volumes from docker-compose.yml
   pg_data:
