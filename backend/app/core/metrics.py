@@ -256,6 +256,19 @@ scanner_audit_write_failures_total = Counter(
     "Audit log write failures (fail-open path)",
 )
 
+# ML input sanitization before inference (ALPHA Prompt 48)
+scanner_ml_input_sanitized_total = Counter(
+    "scanner_ml_input_sanitized_total",
+    "ML input sanitizer modifications by reason",
+    labelnames=["reason"],  # zero_width | control_chars | nfkc | injection_pattern
+)
+
+scanner_ml_input_patterns_total = Counter(
+    "scanner_ml_input_patterns_total",
+    "Prompt-injection-like patterns detected in ML inputs, by pattern name",
+    labelnames=["pattern"],
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",

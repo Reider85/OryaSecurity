@@ -24,6 +24,7 @@ from app.core.metrics import (
     scanner_slow_path_total,
     scanner_slow_path_degraded_total,
 )
+from app.core.security import MLInputSanitizer, SanitizedText
 
 logger = structlog.get_logger()
 from opentelemetry.trace import get_tracer
@@ -156,6 +157,8 @@ class SlowPath:
 
     Performs deep analysis of suspicious prompts flagged by fast path.
     Steps:
+    0. Sanitize input for ML inference (zero-width/control chars, NFKC,
+       prompt-injection-like patterns — ALPHA Prompt 48)
     1. Embed prompt (cache → batcher → client)
     2. Vector search (if embedding available)
     3. ML classifier
@@ -168,6 +171,7 @@ class SlowPath:
         classifier: Optional PromptClassifier (defaults to global)
         vector_db_breaker: Optional VectorDBCircuitBreaker wrapping the searcher
         ml_breaker: Optional MLClassifierCircuitBreaker wrapping the classifier
+        sanitizer: Optional MLInputSanitizer applied before embedding/classifier
     """
 
     def __init__(
@@ -178,11 +182,13 @@ class SlowPath:
         classifier: Optional[PromptClassifier] = None,
         vector_db_breaker: Optional[VectorDBCircuitBreaker] = None,
         ml_breaker: Optional[MLClassifierCircuitBreaker] = None,
+        sanitizer: Optional[MLInputSanitizer] = None,
     ):
         self.embedding_batcher = embedding_batcher
         self.embedding_cache = embedding_cache or embedding_cache
         self.vector_searcher = vector_searcher
         self.classifier = classifier
+        self.sanitizer = sanitizer or MLInputSanitizer()
 
         # Circuit breakers for each component
         self.embedding_cb = CircuitBreaker("embedding", fail_max=5, reset_timeout=30.0)
@@ -324,7 +330,8 @@ class SlowPath:
             text: Input text to analyze
             tenant_id: Tenant for the ML classifier CB fallback policy
                 (``default`` -> degrade, ``strict`` -> fail-closed, EP-14/Prompt 37)
-            request_id: Request id for the fail-closed audit event
+            request_id: Request id for the fail-closed audit event; linked
+                as ``parent_request_id`` from the sanitizer audit event
 
         Returns:
             SlowPathResult with analysis results and latency breakdown.
@@ -340,11 +347,31 @@ class SlowPath:
             fail_closed = False
             fail_closed_reason: Optional[str] = None
 
+        # Step 0: Sanitize input before ML inference (ALPHA Prompt 48).
+        # The original `text` is kept for audit prompt hashes; only the
+        # sanitized copy goes to the embedding cache and the classifier.
+        sanitize_start = time.perf_counter()
+        sanitized: SanitizedText = self.sanitizer.sanitize(text)
+        ml_text = sanitized.sanitized_text
+        breakdown["sanitize_ms"] = (time.perf_counter() - sanitize_start) * 1000
+
+        if sanitized.suspicious_patterns:
+            span.set_attribute(
+                "ml_suspicious_patterns",
+                ",".join(sanitized.suspicious_patterns),
+            )
+            await self._audit_ml_sanitized(
+                text,
+                sanitized,
+                tenant_id=tenant_id,
+                request_id=request_id,
+            )
+
         # Step 1: Embedding
         embed_start = time.perf_counter()
         embedding = await self.embedding_cb.call(
             self._get_embedding,
-            text
+            ml_text
         )
         embed_latency = time.perf_counter() - embed_start
         breakdown["embed_ms"] = embed_latency * 1000
@@ -380,14 +407,14 @@ class SlowPath:
 
         # Step 3: ML classifier (can run in parallel with vector search)
         classification = None
-        if text:  # Always try classification, even if degraded
+        if ml_text:  # Always try classification, even if degraded
             with tracer.start_as_current_span("ml_classify") as ml_span:
                 ml_span.set_attribute("tenant_id", tenant_id)
                 ml_span.set_attribute("request_id", request_id)
                 classifier_start = time.perf_counter()
                 try:
                     classification = await self._get_ml_cb().classify(
-                        text, tenant_id=tenant_id
+                        ml_text, tenant_id=tenant_id
                     )
                 except MLUnavailableFailClosed as exc:
                     # Tenant policy = "strict": classifier unavailable -> BLOCK (EP-14).
@@ -504,6 +531,43 @@ class SlowPath:
             )
         except Exception:
             logger.warning("slow_path_fail_closed_audit_error", exc_info=True)
+
+    async def _audit_ml_sanitized(
+        self,
+        text: str,
+        sanitized: SanitizedText,
+        *,
+        tenant_id: Optional[str],
+        request_id: Optional[str],
+    ) -> None:
+        """Audit suspicious patterns stripped from the ML input (Prompt 48).
+
+        Gets its own request id: a second row under the scan's request id
+        would break ``/decisions/{request_id}`` (single-row lookup), and the
+        verdict CHECK only allows ``allow|block|post_factum_flag`` — the
+        sanitizer does not decide, so it logs ``allow`` with a reason.
+        The original request id is preserved in ``metadata.parent_request_id``.
+        Audit storage fails open like everywhere else in the pipeline.
+        """
+        from app.core.audit import write_event
+
+        try:
+            await write_event(
+                request_id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                prompt_hash=hashlib.sha256((text or "").encode()).hexdigest(),
+                verdict="allow",
+                reason="ml_input_sanitized",
+                rules_matched=[],
+                metadata={
+                    "component": "ml_input_sanitizer",
+                    "patterns": list(sanitized.suspicious_patterns),
+                    "removed_chars": sanitized.removed_chars,
+                    "parent_request_id": request_id,
+                },
+            )
+        except Exception:
+            logger.warning("slow_path_ml_sanitized_audit_error", exc_info=True)
 
     async def _get_embedding(self, text: str) -> Optional[np.ndarray]:
         """Get embedding with cache → batcher → client fallback."""
