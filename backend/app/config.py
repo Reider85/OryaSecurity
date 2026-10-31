@@ -135,6 +135,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_redaction_enabled: bool = True
 
+    # DoS protection (Prompt 47)
+    dos_enabled: bool = True
+    dos_max_prompt_chars: int = 32_768
+    dos_max_prompt_tokens: int = 8_192
+    dos_complexity_threshold: int = 40_000
+
     # OpenTelemetry tracing (Prompt 40)
     otel_tracing_enabled: bool = True
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"

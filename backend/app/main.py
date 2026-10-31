@@ -21,6 +21,7 @@ from app.api.v1 import (
     charts_router as v1_charts_router,
 )
 from app.core.headers import ScannerHeadersMiddleware
+from app.api.middleware.dos import DoSMiddleware
 from app.core.circuit_breakers.vector_db import VectorDBCircuitBreaker, set_vector_db_breaker
 from app.core.circuit_breakers.ml_classifier import (
     MLClassifierCircuitBreaker,
@@ -55,6 +56,9 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# DoS protection middleware (innermost, runs last among middleware)
+app.add_middleware(DoSMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,7 +67,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Added after CORS so that it sits *inside* the CORS layer: Starlette runs the
+# Added after CORS so that it sits *inside* the CORS layer: Starrette runs the
 # last-registered middleware first, and CORS needs to be able to decorate error
 # responses produced further down the stack.
 app.add_middleware(ScannerHeadersMiddleware)
