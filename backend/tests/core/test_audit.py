@@ -317,18 +317,24 @@ class TestWriteEvent:
         assert audit_logs[0]["metadata"] == {"model": "gpt-test"}
 
     async def test_structlog_warning_on_db_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.core.metrics import scanner_audit_write_failures_total
+
+        before = scanner_audit_write_failures_total._value._value
         install_session(monkeypatch, FakeSession(fail_on_flush=True))
 
         with capture_logs() as events:
-            await write_event(
+            result = await write_event(
                 request_id=uuid.uuid4(),
                 prompt_hash="1" * 64,
                 verdict="allow",
             )
 
+        assert result is None
         warnings = [e for e in events if e["event"] == "audit_write_failed"]
         assert len(warnings) == 1
         assert warnings[0]["fail_open"] is True
+        # EP-15/Prompt 44: AuditWriteFailure alert feeds off this counter
+        assert scanner_audit_write_failures_total._value._value == before + 1
 
 
 class TestQueryEvents:

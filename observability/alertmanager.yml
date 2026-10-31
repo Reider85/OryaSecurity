@@ -1,0 +1,52 @@
+# Alertmanager configuration (EP-15/Prompt 44, ADR-0015).
+# Mounted into alertmanager container at /etc/alertmanager/config.yml.
+#
+# Routing: Critical -> PagerDuty, Warning -> Slack #scanner-alerts.
+# NOTE: Alertmanager expands $ENV vars in this file (v0.22+), but empty
+# values fail config validation — so dev placeholders are used here.
+# EP-15/Prompt 45 wires real PAGERDUTY_SERVICE_KEY / SLACK_WEBHOOK_URL.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: slack
+  group_by: ['alertname', 'component']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Critical -> PagerDuty
+    - matchers:
+        - severity = "critical"
+      receiver: pagerduty
+      continue: false
+    # Warning -> Slack #scanner-alerts
+    - matchers:
+        - severity = "warning"
+      receiver: slack
+      continue: false
+
+# A critical alert silences the matching warning of the same alert/component.
+inhibit_rules:
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname', 'component']
+
+receivers:
+  # EP-15/Prompt 45: replace service_key with $PAGERDUTY_SERVICE_KEY
+  - name: pagerduty
+    pagerduty_configs:
+      - service_key: "REPLACE_WITH_PAGERDUTY_SERVICE_KEY"
+        severity: critical
+        description: '{{ .CommonAnnotations.summary }}'
+
+  # EP-15/Prompt 45: replace api_url with $SLACK_WEBHOOK_URL
+  - name: slack
+    slack_configs:
+      - api_url: "https://hooks.slack.com/services/REPLACE/WITH/SLACK_WEBHOOK"
+        channel: '#scanner-alerts'
+        title: '{{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}'

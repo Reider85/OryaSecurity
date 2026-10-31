@@ -3,10 +3,26 @@
 # routing is configured separately (EP-15/Prompt 44, ADR-0008/ADR-0015).
 
 groups:
+  # EP-15/Prompt 44, ADR-0015: p99 of the main request latency > 100ms for 5m
+  - name: latency
+    rules:
+      - alert: HighLatency
+        expr: >
+          histogram_quantile(
+            0.99,
+            sum by (le) (rate(scanner_request_duration_seconds_bucket[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Request p99 latency above 100ms for 5 minutes"
+          description: "scanner_request_duration_seconds p99 = {{ $value | humanizeDuration }}"
+
+  # EP-14/Prompt 39, ADR-0008: fire when any component's breaker is OPEN
+  # (state value 1) for more than 1 minute.
   - name: circuit_breakers
     rules:
-      # EP-14/Prompt 39, ADR-0008: fire when any component's breaker is OPEN
-      # (state value 1) for more than 1 minute.
       - alert: CircuitBreakerOpen
         expr: scanner_circuit_breaker_state == 1
         for: 1m
@@ -14,3 +30,36 @@ groups:
           severity: critical
         annotations:
           summary: "Circuit breaker open: {{ $labels.component }}"
+
+  # EP-15/Prompt 44, ADR-0015: any audit log write failure is Critical —
+  # audit completeness is a compliance requirement (ADR-0006).
+  - name: audit
+    rules:
+      - alert: AuditWriteFailure
+        expr: increase(scanner_audit_write_failures_total[1m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit log write failures detected"
+          description: "{{ $value | humanize }} audit write failures in the last minute"
+
+  # EP-15/Prompt 44, ADR-0015: open breaker on vector_db / ml_classifier
+  # means the upstream is effectively down (degraded mode).
+  - name: dependencies
+    rules:
+      - alert: VectorDBDown
+        expr: scanner_circuit_breaker_state{component="vector_db"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vector DB (Qdrant) unavailable — circuit breaker open"
+
+      - alert: MLClassifierDown
+        expr: scanner_circuit_breaker_state{component="ml_classifier"} == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ML classifier unavailable — circuit breaker open"

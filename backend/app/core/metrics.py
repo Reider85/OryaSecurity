@@ -249,6 +249,13 @@ scanner_detokenization_failures_total = Counter(
     labelnames=["error"],  # circuit_open | vault_decode_failed: ... | ...
 )
 
+# Audit log write failures (EP-15/Prompt 44, ADR-0015): fires the
+# AuditWriteFailure alert when the audit DB write fails (fail-open path).
+scanner_audit_write_failures_total = Counter(
+    "scanner_audit_write_failures_total",
+    "Audit log write failures (fail-open path)",
+)
+
 python_info = Gauge(
     "python_info",
     "Python runtime information",
@@ -285,3 +292,4 @@ def init_metrics() -> None:
     scanner_detokenization_failures_total.clear()
     scanner_circuit_breaker_failures_total.clear()
     scanner_circuit_breaker_fallback_invocations_total.clear()
+    scanner_audit_write_failures_total.clear()

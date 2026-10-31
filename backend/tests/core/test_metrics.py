@@ -65,6 +65,12 @@ class TestMetricsEndpoint:
         assert "# HELP scanner_cache_latency_seconds Cache operation latency in seconds" in metrics_text
         assert "# TYPE scanner_cache_latency_seconds histogram" in metrics_text
 
+    def test_metrics_endpoint_exposes_audit_failure_counter(self, client: TestClient) -> None:
+        """EP-15/Prompt 44: audit write failure counter must be exposed for Alertmanager."""
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        assert "scanner_audit_write_failures_total" in response.text
+
 
 class TestCacheMetrics:
     @pytest.mark.asyncio

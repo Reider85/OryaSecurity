@@ -1582,7 +1582,7 @@ ALPHA exit checklist (для phase gate review):
 [ ] Jaeger + trace sampling (10% normal, 100% errors/blocked)
 [ ] Loki structured JSON logs с PII redaction layer
 [ ] Grafana operational dashboard (6 panels)
-[ ] Alertmanager + 5 базовых alerts
+[x] Alertmanager + 5 базовых alerts
 [ ] PagerDuty integration для Critical
 [ ] Envoy frontend с TLS termination
 [ ] DoS protection: token length, complexity score

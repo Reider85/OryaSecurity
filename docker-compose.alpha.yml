@@ -428,6 +428,17 @@ services:
     ports:
       - "9080:9080"
 
+  # EP-15/Prompt 44: Alertmanager (ADR-0015)
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    command: ["--config.file=/etc/alertmanager/config.yml", "--storage.path=/alertmanager"]
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/config.yml:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
+
 volumes:
   # Reuse volumes from docker-compose.yml
   pg_data:
@@ -445,3 +456,5 @@ volumes:
   # EP-15/Prompt 42: Loki & Promtail volumes
   loki_data:
   promtail_positions:
+  # EP-15/Prompt 44: Alertmanager alert storage
+  alertmanager_data:

@@ -8,6 +8,7 @@ import structlog
 from sqlalchemy import select, func, update
 
 from app.config import settings
+from app.core.metrics import scanner_audit_write_failures_total
 from app.db.models import AuditEvent
 from app.db.session import get_session
 
@@ -136,6 +137,7 @@ async def write_event(
             session.add(event)
             await session.flush()
     except Exception as exc:
+        scanner_audit_write_failures_total.inc()
         logger.warning(
             "audit_write_failed",
             request_id=str(request_id),

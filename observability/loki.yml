@@ -35,7 +35,8 @@ schema_config:
         period: 24h
 
 ruler:
-  alertmanager_url: http://localhost:9093
+  # EP-15/Prompt 44: ship Loki ruler alerts to the alertmanager service
+  alertmanager_url: http://alertmanager:9093
   storage:
     type: local
     local:
