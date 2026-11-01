@@ -49,9 +49,77 @@ import platform
 setup_logging(settings.log_level)
 logger = get_logger(__name__)
 
+OPENAPI_DESCRIPTION = """\
+LLM Security Scanner — reverse proxy that inspects prompts and model \
+generations before they reach users.
+
+**v2 highlights:** SSE streaming inspection with per-chunk blocking, \
+OpenAI-compatible embeddings/classification, OPA-based policy decisions, \
+and Vault-backed PII redaction.
+
+Authentication: `Authorization: Bearer <api-key | JWT>`. The tenant is \
+resolved from the credential; the `{tenant}` server variable is a \
+convenience for hosted deployments.
+"""
+
+OPENAPI_TAGS = [
+    {
+        "name": "streaming",
+        "description": "SSE streaming inspection of LLM chat completions and live notifications (EP-07).",
+    },
+    {
+        "name": "ml",
+        "description": "ML endpoints: embeddings and prompt classification (EP-08, EP-10).",
+    },
+    {
+        "name": "opa",
+        "description": "OPA Policy Decision Point integration (EP-12). Reserved — decisions run inside the pipeline; no public endpoints yet.",
+    },
+    {
+        "name": "vault",
+        "description": "HashiCorp Vault PII redaction (EP-13). Reserved — redaction runs inside the pipeline; no public endpoints yet.",
+    },
+    {"name": "v2", "description": "Version 2 API endpoints."},
+    {"name": "notifications", "description": "WebSocket live notifications for SecOps."},
+    {"name": "openai-compat", "description": "OpenAI-compatible reverse proxy (v1)."},
+    {"name": "scan", "description": "Synchronous text scan endpoint."},
+    {"name": "health", "description": "Health check."},
+    {"name": "metrics", "description": "Prometheus metrics exposition."},
+    {"name": "admin-apikey", "description": "API key administration."},
+    {"name": "audit", "description": "Audit log (UI API)."},
+    {"name": "auth", "description": "UI authentication."},
+    {"name": "cache", "description": "Decision cache management."},
+    {"name": "charts", "description": "Dashboard chart data."},
+    {"name": "decisions", "description": "Decision history."},
+    {"name": "rules", "description": "Detection rules management."},
+]
+
+OPENAPI_SERVERS = [
+    {
+        "url": "http://localhost:8000",
+        "description": "Local development",
+    },
+    {
+        "url": "https://{tenant}.scanner.example.com",
+        "description": (
+            "Hosted deployment. The tenant is taken from the URL when present, "
+            "otherwise resolved from the Authorization credential (JWT claim or API key)."
+        ),
+        "variables": {
+            "tenant": {
+                "default": "default",
+                "description": "Tenant identifier (DNS label, e.g. `acme`).",
+            }
+        },
+    },
+]
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
+    description=OPENAPI_DESCRIPTION,
+    openapi_tags=OPENAPI_TAGS,
+    servers=OPENAPI_SERVERS,
     docs_url="/docs",
     redoc_url="/redoc",
 )

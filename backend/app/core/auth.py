@@ -14,7 +14,15 @@ from app.config import settings
 from app.core.jwt import decode_jwt, is_jwt_candidate
 from app.db.session import get_db_connection
 
-_bearer_scheme = HTTPBearer(auto_error=False)
+_bearer_scheme = HTTPBearer(
+    auto_error=False,
+    scheme_name="ApiKeyAuth",
+    bearerFormat="jwt",
+    description=(
+        "API key or JWT issued by POST /api/v1/auth/login. "
+        "Send it as `Authorization: Bearer <token>`."
+    ),
+)
 
 
 def _hash_api_key(api_key: str) -> str:

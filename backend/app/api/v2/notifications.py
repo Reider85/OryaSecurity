@@ -11,7 +11,7 @@ from app.core.auth import authenticate_api_key
 from app.core.jwt import decode_jwt, is_jwt_candidate
 from app.core.notifications.websocket import get_connection_manager
 
-router = APIRouter(prefix="/v2", tags=["v2", "notifications"])
+router = APIRouter(prefix="/v2", tags=["v2", "streaming", "notifications"])
 logger = structlog.get_logger()
 
 
@@ -45,8 +45,15 @@ async def ws_notifications(
 ) -> None:
     """SecOps live notifications (post-factum flags).
 
+    Streams JSON events over WebSocket when async post-factum deep analysis
+    flags a completed generation (EP-07/Prompt 6).
+
     Auth: ``?api_key=<JWT or raw API key>``. Invalid tokens are rejected
-    with close code 4401 before the socket is accepted.
+    with close code 4401 before the socket is accepted; close code 4403
+    means notifications are disabled (``ws_notifications_enabled=false``).
+
+    Note: WebSocket routes are not part of the OpenAPI document; use a
+    WebSocket client (e.g. ``ws://localhost:8000/v2/ws/notifications?api_key=...``).
     """
     if not settings.ws_notifications_enabled:
         await websocket.close(code=4403)
