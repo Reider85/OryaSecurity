@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from prometheus_client import Counter, Gauge, Histogram, REGISTRY
-
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram
 
 
 def _unregister_builtin_python_info() -> None:
@@ -144,6 +143,34 @@ scanner_embedding_cache_lookups_total = Counter(
 scanner_embedding_cache_size = Gauge(
     "scanner_embedding_cache_size",
     "Current number of entries in embedding cache",
+)
+
+# V2 ML endpoints (ALPHA Prompt 50)
+scanner_embedding_requests_total = Counter(
+    "scanner_embedding_requests_total",
+    "Total embedding API requests",
+)
+
+scanner_embedding_duration_seconds = Histogram(
+    "scanner_embedding_duration_seconds",
+    "Embedding API request latency in seconds",
+    buckets=[0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0],
+)
+
+scanner_embedding_cache_misses_total = Counter(
+    "scanner_embedding_cache_misses_total",
+    "Total embedding cache misses",
+)
+
+scanner_classification_requests_total = Counter(
+    "scanner_classification_requests_total",
+    "Total classification API requests",
+)
+
+scanner_classification_duration_seconds = Histogram(
+    "scanner_classification_duration_seconds",
+    "Classification API request latency in seconds",
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
 )
 
 # WebSocket notifications metrics
@@ -306,3 +333,6 @@ def init_metrics() -> None:
     scanner_circuit_breaker_failures_total.clear()
     scanner_circuit_breaker_fallback_invocations_total.clear()
     scanner_audit_write_failures_total.clear()
+    scanner_embedding_requests_total.clear()
+    scanner_embedding_cache_misses_total.clear()
+    scanner_classification_requests_total.clear()

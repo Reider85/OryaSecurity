@@ -15,4 +15,3 @@ datasources:
       queryTimeout: 60s
       timeInterval: 15s
     secureJsonData: {}
-    version: 1

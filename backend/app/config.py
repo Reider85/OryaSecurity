@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     embedding_tokenizer_path: str = "ml-models/embeddings/1"
     embedding_dim: int = 1024
     embedding_max_length: int = 512
+    embedding_model_name: str = "multilingual-e5"
 
     # Embedding cache (Redis)
     embedding_cache_ttl_seconds: int = 86400
@@ -121,6 +122,7 @@ class Settings(BaseSettings):
     classifier_tokenizer_path: str = "ml-models/classifier/v1"
     classifier_max_length: int = 512
     classifier_flag_threshold: float = 0.85
+    classifier_model_name: str = "deberta-v3-small"
 
     # SHAP explainability for classifier decisions (Prompt 19)
     explainability_enabled: bool = True

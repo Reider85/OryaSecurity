@@ -55,9 +55,9 @@ function Show-ComposeDiagnostics {
     Write-Host ""
     Write-Host "ERROR: $Message" -ForegroundColor Red
     Write-Host "--- docker compose ps ---"
-    $null = & docker compose @ComposeArgs ps 2>&1
+    & docker compose @ComposeArgs ps 2>&1 | Out-Host
     Write-Host "--- last 50 log lines ---"
-    $null = & docker compose @ComposeArgs logs --tail=50 2>&1
+    & docker compose @ComposeArgs logs --tail=50 2>&1 | Out-Host
 }
 
 function Wait-ForUrl {

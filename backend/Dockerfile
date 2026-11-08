@@ -1,5 +1,5 @@
 # Builder stage
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,7 +29,7 @@ COPY alembic/ alembic/
 COPY entrypoint.sh entrypoint.sh
 
 # Runtime stage
-FROM python:3.12-slim as runtime
+FROM python:3.12-slim AS runtime
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
