@@ -378,17 +378,16 @@ def test_span_error_handling():
             span.set_attribute("test", "error")
             # Simulate an error
             raise ValueError("Test error")
-    
+
     except ValueError:
         pass  # Expected
-    
+    finally:
+        shutdown_telemetry()
+
     # Get spans
     spans = exporter.get_finished_spans()
     assert len(spans) == 1
-    
+
     span = spans[0]
     assert span.status.status_code == 2  # ERROR
     assert span.status.description == "Test error"
-        
-    finally:
-        shutdown_telemetry()
