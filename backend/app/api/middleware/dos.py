@@ -57,34 +57,32 @@ class DoSMiddleware:
                 return
             body += message.get("body", b"")
             more_body = message.get("more_body", False)
-        
+
+        # The original receive stream is now fully drained: re-using it
+        # downstream would make the endpoint hang waiting for body data that
+        # will never arrive (uvicorn blocks on receive until disconnect).
+        # Replay the buffered body through a proper ASGI receive coroutine
+        # instead of an async generator, which is not awaitable.
+        buffered: list[dict] = [
+            {"type": "http.request", "body": body, "more_body": False}
+        ]
+
+        async def replay_receive() -> dict:
+            if buffered:
+                return buffered.pop(0)
+            return await receive()
+
         # Extract prompt from JSON
         prompt = extract_prompt_from_json_body(body)
-        if prompt is None:
-            # No prompt found in JSON body, pass through
-            await self.app(scope, receive, send)
-            return
-        
-        # Check prompt with DoS protector
-        result = self.dos_protector.check(prompt)
-        
-        if result.ok:
-            # Prompt passed DoS check, replay body to app
-            async def replay_receive():
-                # Yield the buffered body first
-                yield {"type": "http.request", "body": body, "more_body": False}
-                # Then any additional messages (should be none for POST)
-                while True:
-                    try:
-                        msg = await receive()
-                        yield msg
-                    except Exception:
-                        break
-            
-            await self.app(scope, replay_receive, send)
-        else:
-            # Prompt failed DoS check, return 413 response
-            await self._send_dos_response(send, result, prompt)
+        if prompt is not None:
+            # Check prompt with DoS protector
+            result = self.dos_protector.check(prompt)
+            if not result.ok:
+                # Prompt failed DoS check, return 413 response
+                await self._send_dos_response(send, result, prompt)
+                return
+
+        await self.app(scope, replay_receive, send)
     
     async def _send_dos_response(self, send: Send, result, prompt: str) -> None:
         """Send 413 Payload Too Large response with audit event."""
